@@ -1,0 +1,50 @@
+name: 'clang-tidy review'
+author: 'Peter Hill'
+description: 'Create a pull request review based on warnings from clang-tidy'
+branding:
+  icon: 'pen-tool'
+  color: 'red'
+inputs:
+  token:
+    description: 'Authentication token'
+    default: ${{ github.token }}
+    required: false
+  build_dir:
+    description: 'Directory containing the compile_commands.json file'
+    default: '.'
+    required: false
+  clang_tidy_version:
+    description: 'Version of clang-tidy to use; one of 6.0, 7, 8, 9, 10'
+    default: '10'
+    required: false
+  clang_tidy_checks:
+    description: 'List of checks'
+    default: '-*,performance-*,readability-*,bugprone-*,clang-analyzer-*,cppcoreguidelines-*,mpi-*,misc-*'
+    required: false
+  include:
+    description: 'Comma-separated list of files or patterns to include'
+    default: '"*.[ch],*.[ch]xx,*.[ch]pp,*.[ch]++,*.cc,*.hh"'
+    required: false
+  exclude:
+    description: 'Comma-separated list of files or patterns to exclude'
+    required: false
+    default: ''
+  pr:
+    default: ${{ github.event.pull_request.number }}
+  repo:
+    default: ${{ github.repository }}
+outputs:
+  total_comments:
+    description: 'Total number of warnings from clang-tidy'
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  args:
+    - --clang_tidy_binary=clang-tidy-${{ inputs.clang_tidy_version }}
+    - --token=${{ inputs.token }}
+    - --repo=${{ inputs.repo }}
+    - --pr=${{ inputs.pr }}
+    - --build_dir=${{ inputs.build_dir }}
+    - --clang_tidy_checks=${{ inputs.clang_tidy_checks }}
+    - --include ${{ inputs.include }}
+    - --exclude ${{ inputs.exclude }}
