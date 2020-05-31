@@ -1,8 +1,18 @@
-# clang-tidy review
+# Clang-Tidy Review
 
 Create a pull-request review based on the warnings from clang-tidy.
 
+Inspired by `clang-tidy-diff`, Clang-Tidy Review only runs on the
+changes in the pull request. This makes it nice and speedy, as well as
+being useful for projects that aren't completely clang-tidy clean yet.
+
+Returns the number of comments, so you can decide whether the warnings
+act as suggestions, or check failure.
+
 Doesn't spam by repeating identical warnings for the same line.
+
+Can use `compile_commands.json`, so you can optionally configure the
+build how you like first.
 
 ![Example review](example_review.png)
 
@@ -11,6 +21,7 @@ Example usage:
 ```yaml
 name: clang-tidy-review
 
+# You can be more specific, but it currently only works on pull requests
 on: [pull_request]
 
 jobs:
@@ -19,8 +30,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - uses: ZedThree/clang-tidy-review@v0.1.0
+    - uses: ZedThree/clang-tidy-review@v0.2.0
       id: review
+    # If there are any comments, fail the check
     - if: steps.review.outpus.total_comments > 0
       run: exit 1
 ```

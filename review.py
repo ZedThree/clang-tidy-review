@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 
+# clang-tidy review
+# Copyright (c) 2020 Peter Hill
+# SPDX-License-Identifier: MIT
+# See LICENSE for more information
+
 import argparse
 import itertools
 import fnmatch
