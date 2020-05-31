@@ -8,7 +8,6 @@ RUN apt update && apt install -y --no-install-recommends\
     clang-tidy-8 \
     clang-tidy-9 \
     clang-tidy-10 \
-    git curl\
     python3 python3-pip && \
     pip3 install --upgrade pip && \
     pip3 install -r requirements.txt

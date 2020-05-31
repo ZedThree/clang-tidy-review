@@ -8,6 +8,7 @@ import os
 from operator import itemgetter
 import pprint
 import subprocess
+import requests
 import unidiff
 from github import Github
 
@@ -70,19 +71,16 @@ def get_pr_diff(repo, pr_number, token):
 
     """
 
-    media_header = "Accept: application/vnd.github.v3.diff"
-    token_header = f"Authorization: token {token}"
+    headers = {
+        "Accept": "application/vnd.github.v3.diff",
+        "Authorization": f"token {token}",
+    }
     url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
-    pr_diff_file = "PR_diff_file"
 
-    subprocess.run(
-        f'curl -H "{media_header}" -H "{token_header}" {url} -o {pr_diff_file}',
-        capture_output=False,
-        shell=True,
-        check=True,
-    )
+    pr_diff_response = requests.get(url, headers=headers)
+    pr_diff_response.raise_for_status()
 
-    return unidiff.PatchSet.from_filename(pr_diff_file)
+    return unidiff.PatchSet(pr_diff_response.text)
 
 
 def get_line_ranges(diff):
