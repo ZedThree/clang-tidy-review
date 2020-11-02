@@ -33,7 +33,7 @@ jobs:
     - uses: ZedThree/clang-tidy-review@v0.2.0
       id: review
     # If there are any comments, fail the check
-    - if: steps.review.outpus.total_comments > 0
+    - if: steps.review.outputs.total_comments > 0
       run: exit 1
 ```
 
