@@ -271,6 +271,41 @@ if __name__ == "__main__":
 
     exclude = args.exclude.split(",") if args.exclude is not None else None
 
+
+    build_compile_commands = f"{args.build_dir}/compile_commands.json"
+
+    if os.path.exists(build_compile_commands):
+        print(f"Found '{build_compile_commands}', updating absolute paths")
+        # We might need to change some absolute paths if we're inside
+        # a docker container
+        with open(build_compile_commands, "r") as f:
+            compile_commands = json.load(f)
+
+        original_directory = compile_commands[0]["directory"]
+
+        # directory should either end with the build directory,
+        # unless it's '.', in which case use all of directory
+        if original_directory.endswith(args.build_dir):
+            build_dir_index = -(len(args.build_dir) + 1)
+        elif args.build_dir == ".":
+            build_dir_index = -1
+        else:
+            raise RuntimeError(
+                f"compile_commands.json contains absolute paths that I don't know how to deal with: '{original_directory}'"
+            )
+
+        basedir = original_directory[:build_dir_index]
+        newbasedir = os.getcwd()
+
+        print(f"Replacing '{basedir}' with '{newbasedir}'", flush=True)
+
+        modified_compile_commands = json.dumps(compile_commands).replace(
+            basedir, newbasedir
+        )
+
+        with open(build_compile_commands, "w") as f:
+            f.write(modified_compile_commands)
+
     main(
         repo=args.repo,
         pr_number=args.pr,
