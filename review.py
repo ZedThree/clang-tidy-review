@@ -183,8 +183,8 @@ def post_review(pull_request, review):
         print("Everything already posted!")
         return
 
-    print("\nNew comments to post:")
-    pprint.pprint(review)
+    review_string = pprint.pformat(review)
+    print("\nNew comments to post:\n", review_string, flush=True)
 
     pull_request.create_review(**review)
 
@@ -227,8 +227,8 @@ def main(
     lookup = make_file_line_lookup(diff)
     review = make_review(clang_tidy_warnings, lookup)
 
-    print("Created the following review:", flush=True)
-    pprint.pprint(review)
+    review_string = pprint.pformat(review)
+    print("Created the following review:\n", review_string, flush=True)
 
     github = Github(token)
     repo = github.get_repo(f"{repo}")
@@ -238,7 +238,7 @@ def main(
         post_lgtm_comment(pull_request)
         return
 
-    print("Posting the review")
+    print("Posting the review", flush=True)
     post_review(pull_request, review)
 
 
