@@ -186,8 +186,8 @@ def post_review(pull_request, review):
         print("Everything already posted!")
         return
 
-    print("\nNew comments to post:")
-    pprint.pprint(review)
+    review_string = pprint.pformat(review)
+    print("\nNew comments to post:\n", review_string, flush=True)
 
     pull_request.create_review(**review)
 
@@ -225,9 +225,13 @@ def main(
     clang_tidy_warnings = get_clang_tidy_warnings(
         line_ranges, build_dir, clang_tidy_checks, clang_tidy_binary, " ".join(files)
     )
+    print("clang-tidy had the following warnings:\n", clang_tidy_warnings, flush=True)
 
     lookup = make_file_line_lookup(diff)
     review = make_review(clang_tidy_warnings, lookup)
+
+    review_string = pprint.pformat(review)
+    print("Created the following review:\n", review_string, flush=True)
 
     github = Github(token)
     repo = github.get_repo(f"{repo}")
@@ -237,8 +241,7 @@ def main(
         post_lgtm_comment(pull_request)
         return
 
-    print("Posting a review:")
-    pprint.pprint(review)
+    print("Posting the review", flush=True)
     post_review(pull_request, review)
 
 
