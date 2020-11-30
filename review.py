@@ -306,6 +306,7 @@ if __name__ == "__main__":
     build_compile_commands = f"{args.build_dir}/compile_commands.json"
 
     if os.path.exists(build_compile_commands):
+        print(f"Found '{build_compile_commands}', updating absolute paths")
         # We might need to change some absolute paths if we're inside
         # a docker container
         with open(build_compile_commands, "r") as f:
@@ -336,6 +337,12 @@ if __name__ == "__main__":
 
         with open(build_compile_commands, "w") as f:
             json.dump(compile_commands, f)
+
+        print(f"cat {build_compile_commands}", flush=True)
+        subprocess.run(["cat", build_compile_commands])
+
+        print(f"find . -type f | xargs grep {original_directory}", flush=True)
+        subprocess.run(f"find . -type f | xargs grep {original_directory}", shell=True)
 
     main(
         repo=args.repo,
