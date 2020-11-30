@@ -29,6 +29,10 @@ inputs:
     description: 'Comma-separated list of files or patterns to exclude'
     required: false
     default: ''
+  apt_packages:
+    description: 'Comma-separated list of apt packages to install'
+    required: false
+    default: ''
   pr:
     default: ${{ github.event.pull_request.number }}
   repo:
@@ -48,3 +52,4 @@ runs:
     - --clang_tidy_checks=${{ inputs.clang_tidy_checks }}
     - --include ${{ inputs.include }}
     - --exclude ${{ inputs.exclude }}
+    - --apt-packages=${{ inputs.apt_packages }}

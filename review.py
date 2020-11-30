@@ -265,43 +265,21 @@ if __name__ == "__main__":
         nargs="?",
         default="",
     )
+    parser.add_argument(
+        "--apt-packages",
+        help="Comma-separated list of apt packages to install",
+        type=str,
+        default="",
+    )
     parser.add_argument("--token", help="github auth token")
 
     args = parser.parse_args()
 
     exclude = args.exclude.split(",") if args.exclude is not None else None
 
-    print("pwd:", os.getcwd(), flush=True)
-    print("GITHUB_WORKSPACE:", os.environ.get("GITHUB_WORKSPACE", None), flush=True)
-
-    print("ls -lAh", flush=True)
-    print(
-        subprocess.run(["ls", "-lAh"], capture_output=True, encoding="utf-8").stdout,
-        flush=True,
-    )
-    print(f"ls -lAh {args.build_dir}", flush=True)
-    print(
-        subprocess.run(
-            ["ls", "-lAh", args.build_dir], capture_output=True, encoding="utf-8"
-        ).stdout,
-        flush=True,
-    )
-
-    print("ls -lAh /home/runner", flush=True)
-    print(
-        subprocess.run(
-            ["ls", "-lAh", "/home/runner"], capture_output=True, encoding="utf-8"
-        ).stdout,
-        flush=True,
-    )
-
-    print("ls -lAh /github/home", flush=True)
-    print(
-        subprocess.run(
-            ["ls", "-lAh", "/github/home"], capture_output=True, encoding="utf-8"
-        ).stdout,
-        flush=True,
-    )
+    if args.apt_packages:
+        print("Installing additional packages:", args.apt_packages.split(","))
+        subprocess.run(["apt", "install", "-y"] + args.apt_packages.split(","))
 
     build_compile_commands = f"{args.build_dir}/compile_commands.json"
 
@@ -336,9 +314,6 @@ if __name__ == "__main__":
 
         with open(build_compile_commands, "w") as f:
             f.write(modified_compile_commands)
-
-        print(f"cat {build_compile_commands}", flush=True)
-        subprocess.run(["cat", build_compile_commands])
 
     main(
         repo=args.repo,
