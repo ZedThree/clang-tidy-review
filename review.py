@@ -279,7 +279,10 @@ if __name__ == "__main__":
 
     if args.apt_packages:
         print("Installing additional packages:", args.apt_packages.split(","))
-        subprocess.run(["apt", "install", "-y"] + args.apt_packages.split(","))
+        subprocess.run(
+            ["apt", "install", "-y", "--no-install-recommends"]
+            + args.apt_packages.split(",")
+        )
 
     build_compile_commands = f"{args.build_dir}/compile_commands.json"
 
