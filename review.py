@@ -330,19 +330,15 @@ if __name__ == "__main__":
 
         print(f"Replacing '{basedir}' with '{newbasedir}'", flush=True)
 
-        # Modify absolute paths for current directory
-        for command in compile_commands:
-            command["directory"] = command["directory"].replace(basedir, newbasedir)
-            command["file"] = command["file"].replace(basedir, newbasedir)
+        modified_compile_commands = json.dumps(compile_commands).replace(
+            basedir, newbasedir
+        )
 
         with open(build_compile_commands, "w") as f:
-            json.dump(compile_commands, f)
+            f.write(modified_compile_commands)
 
         print(f"cat {build_compile_commands}", flush=True)
         subprocess.run(["cat", build_compile_commands])
-
-        print(f"find . -type f | xargs grep {original_directory}", flush=True)
-        subprocess.run(f"find . -type f | xargs grep {original_directory}", shell=True)
 
     main(
         repo=args.repo,
