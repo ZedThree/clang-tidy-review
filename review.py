@@ -125,14 +125,14 @@ def get_clang_tidy_warnings(
     print(f"Running:\n\t{command}")
 
     try:
-        child = subprocess.run(command, capture_output=True, shell=True, check=True,)
+        output = subprocess.run(
+            command, capture_output=True, shell=True, check=True, encoding="utf-8"
+        )
     except subprocess.CalledProcessError as e:
         print(
-            f"\n\nclang-tidy failed with return code {e.returncode} and error:\n{e.stderr.decode('utf-8')}"
+            f"\n\nclang-tidy failed with return code {e.returncode} and error:\n{e.stderr}\nOutput was:\n{e.stdout}"
         )
         raise
-
-    output = child.stdout.decode("utf-8", "ignore")
 
     return output.splitlines()
 
