@@ -121,7 +121,7 @@ def get_clang_tidy_warnings(
     """Get the clang-tidy warnings
     """
 
-    command = f"cd {build_dir} && {clang_tidy_binary} -p=. -checks={clang_tidy_checks} -line-filter={line_filter} {files}"
+    command = f"{clang_tidy_binary} -p={build_dir} -checks={clang_tidy_checks} -line-filter={line_filter} {files}"
     print(f"Running:\n\t{command}")
 
     try:
@@ -272,10 +272,24 @@ if __name__ == "__main__":
     exclude = args.exclude.split(",") if args.exclude is not None else None
 
     print("ls -lAh", flush=True)
-    print(subprocess.run(["ls", "-lAh"], capture_output=True), flush=True)
+    print(
+        subprocess.run(["ls", "-lAh"], capture_output=True, encoding="utf-8").stdout,
+        flush=True,
+    )
     print(f"ls -lAh {args.build_dir}", flush=True)
     print(
-        subprocess.run(["ls", "-lAh", args.build_dir], capture_output=True), flush=True
+        subprocess.run(
+            ["ls", "-lAh", args.build_dir], capture_output=True, encoding="utf-8"
+        ).stdout,
+        flush=True,
+    )
+
+    print(f"chmod +x {args.build_dir}", flush=True)
+    subprocess.run(["chmod", "+x", args.build_dir])
+    print("ls -lAh", flush=True)
+    print(
+        subprocess.run(["ls", "-lAh"], capture_output=True, encoding="utf-8").stdout,
+        flush=True,
     )
 
     main(
