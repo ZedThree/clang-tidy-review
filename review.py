@@ -134,7 +134,7 @@ def get_clang_tidy_warnings(
         )
         raise
 
-    return output.splitlines()
+    return output.stdout.splitlines()
 
 
 def post_lgtm_comment(pull_request):
