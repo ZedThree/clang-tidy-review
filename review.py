@@ -271,6 +271,9 @@ if __name__ == "__main__":
 
     exclude = args.exclude.split(",") if args.exclude is not None else None
 
+    print("pwd:", os.getcwd(), flush=True)
+    print("GITHUB_WORKSPACE:", os.environ.get("GITHUB_WORKSPACE", None), flush=True)
+
     print("ls -lAh", flush=True)
     print(
         subprocess.run(["ls", "-lAh"], capture_output=True, encoding="utf-8").stdout,
@@ -284,21 +287,57 @@ if __name__ == "__main__":
         flush=True,
     )
 
-    print(f"chmod +x {args.build_dir}", flush=True)
-    subprocess.run(["chmod", "+x", args.build_dir])
-    print("ls -lAh", flush=True)
+    print("ls -lAh /home/runner", flush=True)
     print(
-        subprocess.run(["ls", "-lAh"], capture_output=True, encoding="utf-8").stdout,
+        subprocess.run(
+            ["ls", "-lAh", args.build_dir], capture_output=True, encoding="utf-8"
+        ).stdout,
         flush=True,
     )
 
-    main(
-        repo=args.repo,
-        pr_number=args.pr,
-        build_dir=args.build_dir,
-        clang_tidy_checks=args.clang_tidy_checks,
-        clang_tidy_binary=args.clang_tidy_binary,
-        token=args.token,
-        include=args.include.split(","),
-        exclude=exclude,
-    )
+    try:
+        main(
+            repo=args.repo,
+            pr_number=args.pr,
+            build_dir=args.build_dir,
+            clang_tidy_checks=args.clang_tidy_checks,
+            clang_tidy_binary=args.clang_tidy_binary,
+            token=args.token,
+            include=args.include.split(","),
+            exclude=exclude,
+        )
+    except subprocess.CalledProcessError:
+        # We might need to change some absolute paths if we're inside
+        # a docker container
+        with open(f"{args.build_dir}/compile_commands.json", "rw") as f:
+            compile_commands = json.load(f)
+
+            # directory should either end with the build directory,
+            # unless it's '.', in which case use all of directory
+            if compile_commands[0].directory.endswith(args.build_dir):
+                build_dir_index = -(len(args.build_dir) + 1)
+            elif args.build_dir == ".":
+                build_dir_index = -1
+            else:
+                raise
+
+            basedir = compile_commands[0].directory[:build_dir_index]
+
+            # Modify absolute paths for current directory
+            for command in compile_commands:
+                command["directory"] = command["directory"].replace(
+                    basedir, os.getcwd()
+                )
+                command["file"] = command["file"].replace(basedir, os.getcwd())
+
+            json.dump(compile_commands, f)
+        main(
+            repo=args.repo,
+            pr_number=args.pr,
+            build_dir=args.build_dir,
+            clang_tidy_checks=args.clang_tidy_checks,
+            clang_tidy_binary=args.clang_tidy_binary,
+            token=args.token,
+            include=args.include.split(","),
+            exclude=exclude,
+        )
