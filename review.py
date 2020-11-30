@@ -41,6 +41,10 @@ def make_review(contents, lookup):
     comments = []
     for num, line in enumerate(contents):
         if "warning" in line:
+            if line.startswith("warning"):
+                # Some warnings don't have the file path, skip them
+                # FIXME: Find a better way to handle this
+                continue
             full_path, source_line, _, warning = line.split(":", maxsplit=3)
             rel_path = os.path.relpath(full_path, root)
             body = ""
