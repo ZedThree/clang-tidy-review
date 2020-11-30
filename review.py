@@ -290,54 +290,58 @@ if __name__ == "__main__":
     print("ls -lAh /home/runner", flush=True)
     print(
         subprocess.run(
-            ["ls", "-lAh", args.build_dir], capture_output=True, encoding="utf-8"
+            ["ls", "-lAh", "/home/runner"], capture_output=True, encoding="utf-8"
         ).stdout,
         flush=True,
     )
 
-    try:
-        main(
-            repo=args.repo,
-            pr_number=args.pr,
-            build_dir=args.build_dir,
-            clang_tidy_checks=args.clang_tidy_checks,
-            clang_tidy_binary=args.clang_tidy_binary,
-            token=args.token,
-            include=args.include.split(","),
-            exclude=exclude,
-        )
-    except subprocess.CalledProcessError:
+    print("ls -lAh /github/home", flush=True)
+    print(
+        subprocess.run(
+            ["ls", "-lAh", "/github/home"], capture_output=True, encoding="utf-8"
+        ).stdout,
+        flush=True,
+    )
+
+    build_compile_commands = f"{args.build_dir}/compile_commands.json"
+
+    if os.path.exists(build_compile_commands):
         # We might need to change some absolute paths if we're inside
         # a docker container
-        with open(f"{args.build_dir}/compile_commands.json", "rw") as f:
+        with open(build_compile_commands, "r") as f:
             compile_commands = json.load(f)
 
-            # directory should either end with the build directory,
-            # unless it's '.', in which case use all of directory
-            if compile_commands[0].directory.endswith(args.build_dir):
-                build_dir_index = -(len(args.build_dir) + 1)
-            elif args.build_dir == ".":
-                build_dir_index = -1
-            else:
-                raise
+        # directory should either end with the build directory,
+        # unless it's '.', in which case use all of directory
+        if compile_commands[0].directory.endswith(args.build_dir):
+            build_dir_index = -(len(args.build_dir) + 1)
+        elif args.build_dir == ".":
+            build_dir_index = -1
+        else:
+            raise RuntimeError(
+                f"compile_commands.json contains absolute paths that I don't know how to deal with: '{compile_commands[0].directory}'"
+            )
 
-            basedir = compile_commands[0].directory[:build_dir_index]
+        basedir = compile_commands[0].directory[:build_dir_index]
+        newbasedir = os.getcwd()
 
-            # Modify absolute paths for current directory
-            for command in compile_commands:
-                command["directory"] = command["directory"].replace(
-                    basedir, os.getcwd()
-                )
-                command["file"] = command["file"].replace(basedir, os.getcwd())
+        print(f"Replacing '{basedir}' with '{newbasedir}'", flush=True)
 
+        # Modify absolute paths for current directory
+        for command in compile_commands:
+            command["directory"] = command["directory"].replace(basedir, newbasedir)
+            command["file"] = command["file"].replace(basedir, newbasedir)
+
+        with open(build_compile_commands, "w") as f:
             json.dump(compile_commands, f)
-        main(
-            repo=args.repo,
-            pr_number=args.pr,
-            build_dir=args.build_dir,
-            clang_tidy_checks=args.clang_tidy_checks,
-            clang_tidy_binary=args.clang_tidy_binary,
-            token=args.token,
-            include=args.include.split(","),
-            exclude=exclude,
-        )
+
+    main(
+        repo=args.repo,
+        pr_number=args.pr,
+        build_dir=args.build_dir,
+        clang_tidy_checks=args.clang_tidy_checks,
+        clang_tidy_binary=args.clang_tidy_binary,
+        token=args.token,
+        include=args.include.split(","),
+        exclude=exclude,
+    )
