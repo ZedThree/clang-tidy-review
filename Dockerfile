@@ -2,7 +2,10 @@ FROM ubuntu:latest
 
 COPY requirements.txt /requirements.txt
 
-RUN apt update && apt install -y --no-install-recommends\
+RUN apt update && \
+    DEBIAN_FRONTEND=noninteractive \
+    apt install -y --no-install-recommends\
+    tzdata \
     clang-tidy-6.0 \
     clang-tidy-7 \
     clang-tidy-8 \
