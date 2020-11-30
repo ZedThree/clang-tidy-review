@@ -311,18 +311,20 @@ if __name__ == "__main__":
         with open(build_compile_commands, "r") as f:
             compile_commands = json.load(f)
 
+        original_directory = compile_commands[0]["directory"]
+
         # directory should either end with the build directory,
         # unless it's '.', in which case use all of directory
-        if compile_commands[0].directory.endswith(args.build_dir):
+        if original_directory.endswith(args.build_dir):
             build_dir_index = -(len(args.build_dir) + 1)
         elif args.build_dir == ".":
             build_dir_index = -1
         else:
             raise RuntimeError(
-                f"compile_commands.json contains absolute paths that I don't know how to deal with: '{compile_commands[0].directory}'"
+                f"compile_commands.json contains absolute paths that I don't know how to deal with: '{original_directory}'"
             )
 
-        basedir = compile_commands[0].directory[:build_dir_index]
+        basedir = original_directory[:build_dir_index]
         newbasedir = os.getcwd()
 
         print(f"Replacing '{basedir}' with '{newbasedir}'", flush=True)
