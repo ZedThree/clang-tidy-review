@@ -89,7 +89,17 @@ def get_pr_diff(repo, pr_number, token):
     pr_diff_response = requests.get(url, headers=headers)
     pr_diff_response.raise_for_status()
 
-    return unidiff.PatchSet(pr_diff_response.text)
+    # PatchSet is the easiest way to construct what we want, but the
+    # diff_line_no property on lines is counted from the top of the
+    # whole PatchSet, whereas GitHub is expecting the "position"
+    # property to be line count within each file's diff. So we need to
+    # do this little bit of faff to get a list of file-diffs with
+    # their own diff_line_no range
+    diff = [
+        unidiff.PatchSet(str(file))[0]
+        for file in unidiff.PatchSet(pr_diff_response.text)
+    ]
+    return diff
 
 
 def get_line_ranges(diff):
