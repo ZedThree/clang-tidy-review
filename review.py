@@ -41,8 +41,7 @@ def make_file_line_lookup(diff):
 
 
 def make_review(contents, lookup):
-    """Construct a Github PR review given some warnings and a lookup table
-    """
+    """Construct a Github PR review given some warnings and a lookup table"""
     root = os.getcwd()
     comments = []
     for num, line in enumerate(contents):
@@ -82,9 +81,7 @@ def make_review(contents, lookup):
 
 
 def get_pr_diff(repo, pr_number, token):
-    """Download the PR diff
-
-    """
+    """Download the PR diff, return a list of PatchedFile"""
 
     headers = {
         "Accept": "application/vnd.github.v3.diff",
@@ -138,8 +135,7 @@ def get_line_ranges(diff):
 def get_clang_tidy_warnings(
     line_filter, build_dir, clang_tidy_checks, clang_tidy_binary, files
 ):
-    """Get the clang-tidy warnings
-    """
+    """Get the clang-tidy warnings"""
 
     command = f"{clang_tidy_binary} -p={build_dir} -checks={clang_tidy_checks} -line-filter={line_filter} {files}"
     print(f"Running:\n\t{command}")
@@ -158,9 +154,7 @@ def get_clang_tidy_warnings(
 
 
 def post_lgtm_comment(pull_request):
-    """Post a "LGTM" comment if everything's clean, making sure not to spam
-
-    """
+    """Post a "LGTM" comment if everything's clean, making sure not to spam"""
 
     BODY = 'clang-tidy review says "All clean, LGTM! :+1:"'
 
@@ -175,9 +169,7 @@ def post_lgtm_comment(pull_request):
 
 
 def post_review(pull_request, review):
-    """Post the review on the pull_request, making sure not to spam
-
-    """
+    """Post the review on the pull_request, making sure not to spam"""
 
     comments = pull_request.get_review_comments()
 
