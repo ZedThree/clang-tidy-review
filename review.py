@@ -12,8 +12,9 @@ import json
 import os
 from operator import itemgetter
 import pprint
-import subprocess
 import requests
+import subprocess
+import textwrap
 import unidiff
 from github import Github
 
@@ -59,7 +60,7 @@ def make_review(contents, lookup):
             comment_body = f"""{warning.strip().replace("'", "`")}
 
 ```cpp
-{body.strip()}
+{textwrap.dedent(body).strip()}
 ```
 """
             comments.append(
