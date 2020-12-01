@@ -12,10 +12,15 @@ import json
 import os
 from operator import itemgetter
 import pprint
-import subprocess
+import re
 import requests
+import subprocess
+import textwrap
 import unidiff
 from github import Github
+
+BAD_CHARS_APT_PACKAGES_PATTERN = "[;&|($]"
+DIFF_HEADER_LINE_LENGTH = 5
 
 
 def make_file_line_lookup(diff):
@@ -30,17 +35,22 @@ def make_file_line_lookup(diff):
         for hunk in file:
             for line in hunk:
                 if not line.is_removed:
-                    lookup[filename][line.target_line_no] = line.diff_line_no - 5
+                    lookup[filename][line.target_line_no] = (
+                        line.diff_line_no - DIFF_HEADER_LINE_LENGTH
+                    )
     return lookup
 
 
 def make_review(contents, lookup):
-    """Construct a Github PR review given some warnings and a lookup table
-    """
+    """Construct a Github PR review given some warnings and a lookup table"""
     root = os.getcwd()
     comments = []
     for num, line in enumerate(contents):
         if "warning" in line:
+            if line.startswith("warning"):
+                # Some warnings don't have the file path, skip them
+                # FIXME: Find a better way to handle this
+                continue
             full_path, source_line, _, warning = line.split(":", maxsplit=3)
             rel_path = os.path.relpath(full_path, root)
             body = ""
@@ -52,7 +62,7 @@ def make_review(contents, lookup):
             comment_body = f"""{warning.strip().replace("'", "`")}
 
 ```cpp
-{body.strip()}
+{textwrap.dedent(body).strip()}
 ```
 """
             comments.append(
@@ -72,9 +82,7 @@ def make_review(contents, lookup):
 
 
 def get_pr_diff(repo, pr_number, token):
-    """Download the PR diff
-
-    """
+    """Download the PR diff, return a list of PatchedFile"""
 
     headers = {
         "Accept": "application/vnd.github.v3.diff",
@@ -85,7 +93,17 @@ def get_pr_diff(repo, pr_number, token):
     pr_diff_response = requests.get(url, headers=headers)
     pr_diff_response.raise_for_status()
 
-    return unidiff.PatchSet(pr_diff_response.text)
+    # PatchSet is the easiest way to construct what we want, but the
+    # diff_line_no property on lines is counted from the top of the
+    # whole PatchSet, whereas GitHub is expecting the "position"
+    # property to be line count within each file's diff. So we need to
+    # do this little bit of faff to get a list of file-diffs with
+    # their own diff_line_no range
+    diff = [
+        unidiff.PatchSet(str(file))[0]
+        for file in unidiff.PatchSet(pr_diff_response.text)
+    ]
+    return diff
 
 
 def get_line_ranges(diff):
@@ -118,29 +136,26 @@ def get_line_ranges(diff):
 def get_clang_tidy_warnings(
     line_filter, build_dir, clang_tidy_checks, clang_tidy_binary, files
 ):
-    """Get the clang-tidy warnings
-    """
+    """Get the clang-tidy warnings"""
 
     command = f"{clang_tidy_binary} -p={build_dir} -checks={clang_tidy_checks} -line-filter={line_filter} {files}"
     print(f"Running:\n\t{command}")
 
     try:
-        child = subprocess.run(command, capture_output=True, shell=True, check=True,)
+        output = subprocess.run(
+            command, capture_output=True, shell=True, check=True, encoding="utf-8"
+        )
     except subprocess.CalledProcessError as e:
         print(
-            f"\n\nclang-tidy failed with return code {e.returncode} and error:\n{e.stderr.decode('utf-8')}"
+            f"\n\nclang-tidy failed with return code {e.returncode} and error:\n{e.stderr}\nOutput was:\n{e.stdout}"
         )
         raise
 
-    output = child.stdout.decode("utf-8", "ignore")
-
-    return output.splitlines()
+    return output.stdout.splitlines()
 
 
 def post_lgtm_comment(pull_request):
-    """Post a "LGTM" comment if everything's clean, making sure not to spam
-
-    """
+    """Post a "LGTM" comment if everything's clean, making sure not to spam"""
 
     BODY = 'clang-tidy review says "All clean, LGTM! :+1:"'
 
@@ -155,9 +170,7 @@ def post_lgtm_comment(pull_request):
 
 
 def post_review(pull_request, review):
-    """Post the review on the pull_request, making sure not to spam
-
-    """
+    """Post the review on the pull_request, making sure not to spam"""
 
     comments = pull_request.get_review_comments()
 
@@ -179,8 +192,8 @@ def post_review(pull_request, review):
         print("Everything already posted!")
         return
 
-    print("\nNew comments to post:")
-    pprint.pprint(review)
+    review_string = pprint.pformat(review)
+    print("\nNew comments to post:\n", review_string, flush=True)
 
     pull_request.create_review(**review)
 
@@ -218,9 +231,13 @@ def main(
     clang_tidy_warnings = get_clang_tidy_warnings(
         line_ranges, build_dir, clang_tidy_checks, clang_tidy_binary, " ".join(files)
     )
+    print("clang-tidy had the following warnings:\n", clang_tidy_warnings, flush=True)
 
     lookup = make_file_line_lookup(diff)
     review = make_review(clang_tidy_warnings, lookup)
+
+    review_string = pprint.pformat(review)
+    print("Created the following review:\n", review_string, flush=True)
 
     github = Github(token)
     repo = github.get_repo(f"{repo}")
@@ -230,8 +247,7 @@ def main(
         post_lgtm_comment(pull_request)
         return
 
-    print("Posting a review:")
-    pprint.pprint(review)
+    print("Posting the review", flush=True)
     post_review(pull_request, review)
 
 
@@ -265,11 +281,60 @@ if __name__ == "__main__":
         nargs="?",
         default="",
     )
+    parser.add_argument(
+        "--apt-packages",
+        help="Comma-separated list of apt packages to install",
+        type=str,
+        default="",
+    )
     parser.add_argument("--token", help="github auth token")
 
     args = parser.parse_args()
 
     exclude = args.exclude.split(",") if args.exclude is not None else None
+
+    if args.apt_packages:
+        # Try to make sure only 'apt install' is run
+        apt_packages = re.split(BAD_CHARS_APT_PACKAGES_PATTERN, args.apt_packages)[0].split(",")
+        print("Installing additional packages:", apt_packages)
+        subprocess.run(
+            ["apt", "install", "-y", "--no-install-recommends"]
+            + apt_packages
+        )
+
+    build_compile_commands = f"{args.build_dir}/compile_commands.json"
+
+    if os.path.exists(build_compile_commands):
+        print(f"Found '{build_compile_commands}', updating absolute paths")
+        # We might need to change some absolute paths if we're inside
+        # a docker container
+        with open(build_compile_commands, "r") as f:
+            compile_commands = json.load(f)
+
+        original_directory = compile_commands[0]["directory"]
+
+        # directory should either end with the build directory,
+        # unless it's '.', in which case use all of directory
+        if original_directory.endswith(args.build_dir):
+            build_dir_index = -(len(args.build_dir) + 1)
+        elif args.build_dir == ".":
+            build_dir_index = -1
+        else:
+            raise RuntimeError(
+                f"compile_commands.json contains absolute paths that I don't know how to deal with: '{original_directory}'"
+            )
+
+        basedir = original_directory[:build_dir_index]
+        newbasedir = os.getcwd()
+
+        print(f"Replacing '{basedir}' with '{newbasedir}'", flush=True)
+
+        modified_compile_commands = json.dumps(compile_commands).replace(
+            basedir, newbasedir
+        )
+
+        with open(build_compile_commands, "w") as f:
+            f.write(modified_compile_commands)
 
     main(
         repo=args.repo,

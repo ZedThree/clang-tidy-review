@@ -37,6 +37,21 @@ jobs:
       run: exit 1
 ```
 
+## Limitations
+
+This is a Docker container-based Action because it needs to install
+some system packages (the different `clang-tidy` versions) as well as
+some Python packages. This that means that there's a two-three minutes
+start-up in order to build the Docker container. If you need to
+install some additional packages you can pass them via the
+`apt_packages` argument.
+
+GitHub only mounts the `GITHUB_WORKSPACE` directory (that is, the
+default place where it clones your repository) on the container. If
+you install additional libraries/packages yourself, you'll need to
+make sure they are in this directory, otherwise they won't be
+accessible from inside this container.
+
 ## Inputs
 
 - `token`: Authentication token
@@ -50,6 +65,8 @@ jobs:
 - `include`: Comma-separated list of files or patterns to include
   - default: `"*.[ch],*.[ch]xx,*.[ch]pp,*.[ch]++,*.cc,*.hh"`
 - `exclude`: Comma-separated list of files or patterns to exclude
+  - default: ''
+- `apt_packages`: Comma-separated list of apt packages to install
   - default: ''
 
 ## Outputs:
