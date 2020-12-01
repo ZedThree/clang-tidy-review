@@ -19,6 +19,7 @@ import unidiff
 from github import Github
 
 BAD_CHARS_APT_PACKAGES_PATTERN = "[;&|($]"
+DIFF_HEADER_LINE_LENGTH = 5
 
 
 def make_file_line_lookup(diff):
@@ -33,7 +34,9 @@ def make_file_line_lookup(diff):
         for hunk in file:
             for line in hunk:
                 if not line.is_removed:
-                    lookup[filename][line.target_line_no] = line.diff_line_no - 5
+                    lookup[filename][line.target_line_no] = (
+                        line.diff_line_no - DIFF_HEADER_LINE_LENGTH
+                    )
     return lookup
 
 
