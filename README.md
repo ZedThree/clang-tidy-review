@@ -51,6 +51,8 @@ jobs:
   - default: `"*.[ch],*.[ch]xx,*.[ch]pp,*.[ch]++,*.cc,*.hh"`
 - `exclude`: Comma-separated list of files or patterns to exclude
   - default: ''
+- `apt_packages`: Comma-separated list of apt packages to install
+  - default: ''
 
 ## Outputs:
 

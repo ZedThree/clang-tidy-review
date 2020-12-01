@@ -12,10 +12,13 @@ import json
 import os
 from operator import itemgetter
 import pprint
+import re
 import subprocess
 import requests
 import unidiff
 from github import Github
+
+BAD_CHARS_APT_PACKAGES_PATTERN = "[;&|($]"
 
 
 def make_file_line_lookup(diff):
@@ -265,12 +268,26 @@ if __name__ == "__main__":
         nargs="?",
         default="",
     )
+    parser.add_argument(
+        "--apt-packages",
+        help="Comma-separated list of apt packages to install",
+        type=str,
+        default="",
+    )
     parser.add_argument("--token", help="github auth token")
 
     args = parser.parse_args()
 
     exclude = args.exclude.split(",") if args.exclude is not None else None
 
+    if args.apt_packages:
+        # Try to make sure only 'apt install' is run
+        apt_packages = re.split(BAD_CHARS_APT_PACKAGES_PATTERN, args.apt_packages)[0].split(",")
+        print("Installing additional packages:", apt_packages)
+        subprocess.run(
+            ["apt", "install", "-y", "--no-install-recommends"]
+            + apt_packages
+        )
 
     build_compile_commands = f"{args.build_dir}/compile_commands.json"
 
