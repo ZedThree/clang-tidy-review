@@ -52,6 +52,10 @@ you install additional libraries/packages yourself, you'll need to
 make sure they are in this directory, otherwise they won't be
 accessible from inside this container.
 
+It seems the GitHub API might only accept a limited number of comments
+at once, so `clang-tidy-review` will only attempt to post the first
+`max_comments` of them (default 25, as this has worked for me).
+
 ## Inputs
 
 - `token`: Authentication token
@@ -68,6 +72,8 @@ accessible from inside this container.
   - default: ''
 - `apt_packages`: Comma-separated list of apt packages to install
   - default: ''
+- `max_comments`: Maximum number of comments to post at once
+  - default: '25'
 
 ## Outputs:
 
