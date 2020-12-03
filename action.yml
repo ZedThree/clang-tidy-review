@@ -33,6 +33,10 @@ inputs:
     description: 'Comma-separated list of apt packages to install'
     required: false
     default: ''
+  max_comments:
+    description: 'Maximum number of comments to post at once'
+    required: false
+    default: '25'
   pr:
     default: ${{ github.event.pull_request.number }}
   repo:

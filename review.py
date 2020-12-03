@@ -207,6 +207,7 @@ def main(
     token,
     include,
     exclude,
+    max_comments,
 ):
 
     diff = get_pr_diff(repo, pr_number, token)
@@ -228,6 +229,8 @@ def main(
         print("No files to check!")
         return
 
+    print(f"Checking these files: {files}", flush=True)
+
     clang_tidy_warnings = get_clang_tidy_warnings(
         line_ranges, build_dir, clang_tidy_checks, clang_tidy_binary, " ".join(files)
     )
@@ -247,6 +250,15 @@ def main(
         post_lgtm_comment(pull_request)
         return
 
+    if len(review["comments"]) > max_comments:
+        review["body"] += (
+            "\n\nThere were too many comments to post at once. "
+            f"Showing the first {max_comments} out of {len(review['comments'])}. "
+            "Check the log or trigger a new build to see more."
+        )
+        review["comments"] = review["comments"][:max_comments]
+
+    return review
     print("Posting the review", flush=True)
     post_review(pull_request, review)
 
@@ -287,6 +299,12 @@ if __name__ == "__main__":
         type=str,
         default="",
     )
+    parser.add_argument(
+        "--max-comments",
+        help="Maximum number of comments to post at once",
+        type=int,
+        default=25,
+    )
     parser.add_argument("--token", help="github auth token")
 
     args = parser.parse_args()
@@ -295,11 +313,12 @@ if __name__ == "__main__":
 
     if args.apt_packages:
         # Try to make sure only 'apt install' is run
-        apt_packages = re.split(BAD_CHARS_APT_PACKAGES_PATTERN, args.apt_packages)[0].split(",")
+        apt_packages = re.split(BAD_CHARS_APT_PACKAGES_PATTERN, args.apt_packages)[
+            0
+        ].split(",")
         print("Installing additional packages:", apt_packages)
         subprocess.run(
-            ["apt", "install", "-y", "--no-install-recommends"]
-            + apt_packages
+            ["apt", "install", "-y", "--no-install-recommends"] + apt_packages
         )
 
     build_compile_commands = f"{args.build_dir}/compile_commands.json"
@@ -345,4 +364,5 @@ if __name__ == "__main__":
         token=args.token,
         include=args.include.split(","),
         exclude=exclude,
+        max_comments=args.max_comments,
     )
