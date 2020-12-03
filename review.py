@@ -169,8 +169,11 @@ def post_lgtm_comment(pull_request):
     pull_request.create_issue_comment(BODY)
 
 
-def post_review(pull_request, review):
-    """Post the review on the pull_request, making sure not to spam"""
+def cull_comments(pull_request, review, max_comments):
+    """Remove comments from review that have already been posted, and keep
+    only the first max_comments
+
+    """
 
     comments = pull_request.get_review_comments()
 
@@ -186,16 +189,15 @@ def post_review(pull_request, review):
             )
         )
 
-    print(f"::set-output name=total_comments::{len(review['comments'])}")
+    if len(review["comments"]) > max_comments:
+        review["body"] += (
+            "\n\nThere were too many comments to post at once. "
+            f"Showing the first {max_comments} out of {len(review['comments'])}. "
+            "Check the log or trigger a new build to see more."
+        )
+        review["comments"] = review["comments"][:max_comments]
 
-    if review["comments"] == []:
-        print("Everything already posted!")
-        return
-
-    review_string = pprint.pformat(review)
-    print("\nNew comments to post:\n", review_string, flush=True)
-
-    pull_request.create_review(**review)
+    return review
 
 
 def main(
@@ -239,8 +241,7 @@ def main(
     lookup = make_file_line_lookup(diff)
     review = make_review(clang_tidy_warnings, lookup)
 
-    review_string = pprint.pformat(review)
-    print("Created the following review:\n", review_string, flush=True)
+    print("Created the following review:\n", pprint.pformat(review), flush=True)
 
     github = Github(token)
     repo = github.get_repo(f"{repo}")
@@ -250,17 +251,17 @@ def main(
         post_lgtm_comment(pull_request)
         return
 
-    if len(review["comments"]) > max_comments:
-        review["body"] += (
-            "\n\nThere were too many comments to post at once. "
-            f"Showing the first {max_comments} out of {len(review['comments'])}. "
-            "Check the log or trigger a new build to see more."
-        )
-        review["comments"] = review["comments"][:max_comments]
+    print("Removing already posted or extra comments", flush=True)
+    trimmed_review = cull_comments(pull_request, review, max_comments)
 
-    return review
-    print("Posting the review", flush=True)
-    post_review(pull_request, review)
+    print(f"::set-output name=total_comments::{len(review['comments'])}")
+
+    if trimmed_review["comments"] == []:
+        print("Everything already posted!")
+        return review
+
+    print("Posting the review:\n", pprint.pformat(trimmed_review), flush=True)
+    pull_request.create_review(**trimmed_review)
 
 
 if __name__ == "__main__":
