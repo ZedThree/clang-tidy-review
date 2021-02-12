@@ -106,13 +106,16 @@ def get_pr_diff(repo, pr_number, token):
     return diff
 
 
-def get_line_ranges(diff):
+def get_line_ranges(diff, files):
     """Return the line ranges of added lines in diff, suitable for the
     line-filter argument of clang-tidy
 
     """
+
     lines_by_file = {}
     for filename in diff:
+        if filename.target_file[2:] not in files:
+            continue
         added_lines = []
         for hunk in filename:
             for line in hunk:
@@ -215,23 +218,23 @@ def main(
     diff = get_pr_diff(repo, pr_number, token)
     print(f"\nDiff from GitHub PR:\n{diff}\n")
 
-    line_ranges = get_line_ranges(diff)
-    print(f"Line filter for clang-tidy:\n{line_ranges}\n")
-
     changed_files = [filename.target_file[2:] for filename in diff]
     files = []
     for pattern in include:
         files.extend(fnmatch.filter(changed_files, pattern))
-    if exclude is None:
-        exclude = []
+        print(f"include: {pattern}, file list now: {files}")
     for pattern in exclude:
         files = [f for f in files if not fnmatch.fnmatch(f, pattern)]
+        print(f"exclude: {pattern}, file list now: {files}")
 
     if files == []:
         print("No files to check!")
         return
 
     print(f"Checking these files: {files}", flush=True)
+
+    line_ranges = get_line_ranges(diff, files)
+    print(f"Line filter for clang-tidy:\n{line_ranges}\n")
 
     clang_tidy_warnings = get_clang_tidy_warnings(
         line_ranges, build_dir, clang_tidy_checks, clang_tidy_binary, " ".join(files)
@@ -310,7 +313,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    exclude = args.exclude.split(",") if args.exclude is not None else None
+    # Remove any enclosing quotes and extra whitespace
+    exclude = args.exclude.strip(""" "'""").split(",")
+    include = args.include.strip(""" "'""").split(",")
 
     if args.apt_packages:
         # Try to make sure only 'apt install' is run
@@ -363,7 +368,7 @@ if __name__ == "__main__":
         clang_tidy_checks=args.clang_tidy_checks,
         clang_tidy_binary=args.clang_tidy_binary,
         token=args.token,
-        include=args.include.split(","),
+        include=include,
         exclude=exclude,
         max_comments=args.max_comments,
     )
