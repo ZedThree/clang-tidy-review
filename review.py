@@ -106,13 +106,16 @@ def get_pr_diff(repo, pr_number, token):
     return diff
 
 
-def get_line_ranges(diff):
+def get_line_ranges(diff, files):
     """Return the line ranges of added lines in diff, suitable for the
     line-filter argument of clang-tidy
 
     """
+
     lines_by_file = {}
     for filename in diff:
+        if filename.target_file[2:] not in files:
+            continue
         added_lines = []
         for hunk in filename:
             for line in hunk:
@@ -215,9 +218,6 @@ def main(
     diff = get_pr_diff(repo, pr_number, token)
     print(f"\nDiff from GitHub PR:\n{diff}\n")
 
-    line_ranges = get_line_ranges(diff)
-    print(f"Line filter for clang-tidy:\n{line_ranges}\n")
-
     changed_files = [filename.target_file[2:] for filename in diff]
     files = []
     for pattern in include:
@@ -230,6 +230,9 @@ def main(
     if files == []:
         print("No files to check!")
         return
+
+    line_ranges = get_line_ranges(diff, files)
+    print(f"Line filter for clang-tidy:\n{line_ranges}\n")
 
     print(f"Checking these files: {files}", flush=True)
 
