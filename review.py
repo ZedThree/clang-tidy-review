@@ -222,19 +222,19 @@ def main(
     files = []
     for pattern in include:
         files.extend(fnmatch.filter(changed_files, pattern))
-    if exclude is None:
-        exclude = []
+        print(f"include: {pattern}, file list now: {files}")
     for pattern in exclude:
         files = [f for f in files if not fnmatch.fnmatch(f, pattern)]
+        print(f"exclude: {pattern}, file list now: {files}")
 
     if files == []:
         print("No files to check!")
         return
 
+    print(f"Checking these files: {files}", flush=True)
+
     line_ranges = get_line_ranges(diff, files)
     print(f"Line filter for clang-tidy:\n{line_ranges}\n")
-
-    print(f"Checking these files: {files}", flush=True)
 
     clang_tidy_warnings = get_clang_tidy_warnings(
         line_ranges, build_dir, clang_tidy_checks, clang_tidy_binary, " ".join(files)
@@ -313,7 +313,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    exclude = args.exclude.split(",") if args.exclude is not None else None
+    # Remove any enclosing quotes and extra whitespace
+    exclude = args.exclude.strip(""" "'""").split(",")
+    include = args.include.strip(""" "'""").split(",")
 
     if args.apt_packages:
         # Try to make sure only 'apt install' is run
@@ -366,7 +368,7 @@ if __name__ == "__main__":
         clang_tidy_checks=args.clang_tidy_checks,
         clang_tidy_binary=args.clang_tidy_binary,
         token=args.token,
-        include=args.include.split(","),
+        include=include,
         exclude=exclude,
         max_comments=args.max_comments,
     )
