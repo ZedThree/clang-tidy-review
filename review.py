@@ -65,13 +65,18 @@ def make_review(contents, lookup):
 {textwrap.dedent(body).strip()}
 ```
 """
-            comments.append(
-                {
-                    "path": rel_path,
-                    "body": comment_body,
-                    "position": lookup[rel_path][int(source_line)],
-                }
-            )
+            try:
+                comments.append(
+                    {
+                        "path": rel_path,
+                        "body": comment_body,
+                        "position": lookup[rel_path][int(source_line)],
+                    }
+                )
+            except KeyError:
+                print(
+                    f"WARNING: Skipping comment for file '{rel_path}' not in PR changeset. Comment body is:\n{comment_body}"
+                )
 
     review = {
         "body": "clang-tidy made some suggestions",
