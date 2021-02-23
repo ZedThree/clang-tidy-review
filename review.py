@@ -239,6 +239,10 @@ def main(
     print(f"Checking these files: {files}", flush=True)
 
     line_ranges = get_line_ranges(diff, files)
+    if line_ranges == "[]":
+        print("No lines added in this PR!")
+        return
+
     print(f"Line filter for clang-tidy:\n{line_ranges}\n")
 
     clang_tidy_warnings = get_clang_tidy_warnings(
