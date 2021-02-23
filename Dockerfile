@@ -4,7 +4,7 @@ COPY requirements.txt /requirements.txt
 
 RUN apt update && \
     DEBIAN_FRONTEND=noninteractive \
-    apt install -y --no-install-recommends\
+    apt-get install -y --no-install-recommends\
     tzdata \
     clang-tidy-6.0 \
     clang-tidy-7 \
