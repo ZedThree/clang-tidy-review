@@ -30,7 +30,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - uses: ZedThree/clang-tidy-review@v0.2.0
+
+    # Optionally generate compile_commands.json
+
+    - uses: ZedThree/clang-tidy-review@v0.6.0
       id: review
     # If there are any comments, fail the check
     - if: steps.review.outputs.total_comments > 0
@@ -60,7 +63,9 @@ at once, so `clang-tidy-review` will only attempt to post the first
 
 - `token`: Authentication token
   - default: `${{ github.token }}`
-- `build_dir`: Directory containing the `compile_commands.json` file
+- `build_dir`: Directory containing the `compile_commands.json` file. This
+  should be relative to `GITHUB_WORKSPACE` (the default place where your
+  repository is cloned)
   - default: `'.'`
 - `clang_tidy_version`: Version of clang-tidy to use; one of 6.0, 7, 8, 9, 10
   - default: '10'
