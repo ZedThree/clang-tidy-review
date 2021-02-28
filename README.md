@@ -80,6 +80,12 @@ at once, so `clang-tidy-review` will only attempt to post the first
 - `max_comments`: Maximum number of comments to post at once
   - default: '25'
 
-## Outputs:
+## Outputs
 
 - `total_comments`: Total number of warnings from clang-tidy
+
+## Real world project samples
+|Project|Workflow|
+|----------|-------|
+|[BOUT++](https://github.com/boutproject/BOUT-dev) |[CMake](https://github.com/boutproject/BOUT-dev/blob/master/.github/workflows/clang-tidy-review.yml) |
+|[Mudlet](https://github.com/Mudlet/Mudlet) |[CMake + Qt](https://github.com/Mudlet/Mudlet/blob/development/.github/workflows/clangtidy-diff-analysis.yml) |
