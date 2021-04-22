@@ -34,6 +34,8 @@ def make_file_line_lookup(diff):
         lookup[filename] = {}
         for hunk in file:
             for line in hunk:
+                if line.diff_line_no is None:
+                    continue
                 if not line.is_removed:
                     lookup[filename][line.target_line_no] = (
                         line.diff_line_no - DIFF_HEADER_LINE_LENGTH
