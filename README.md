@@ -67,8 +67,8 @@ at once, so `clang-tidy-review` will only attempt to post the first
   should be relative to `GITHUB_WORKSPACE` (the default place where your
   repository is cloned)
   - default: `'.'`
-- `clang_tidy_version`: Version of clang-tidy to use; one of 6.0, 7, 8, 9, 10
-  - default: '10'
+- `clang_tidy_version`: Version of clang-tidy to use; one of 6.0, 7, 8, 9, 10, 11
+  - default: '11'
 - `clang_tidy_checks`: List of checks
   - default: `'-*,performance-*,readability-*,bugprone-*,clang-analyzer-*,cppcoreguidelines-*,mpi-*,misc-*'`
 - `include`: Comma-separated list of files or patterns to include

@@ -285,7 +285,7 @@ if __name__ == "__main__":
     parser.add_argument("--repo", help="Repo name in form 'owner/repo'")
     parser.add_argument("--pr", help="PR number", type=int)
     parser.add_argument(
-        "--clang_tidy_binary", help="clang-tidy binary", default="clang-tidy-9"
+        "--clang_tidy_binary", help="clang-tidy binary", default="clang-tidy-11"
     )
     parser.add_argument(
         "--build_dir", help="Directory with compile_commands.json", default="."
