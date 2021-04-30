@@ -6,6 +6,7 @@
 # See LICENSE for more information
 
 import argparse
+import datetime
 import itertools
 import fnmatch
 import json
@@ -151,6 +152,7 @@ def get_clang_tidy_warnings(
     command = f"{clang_tidy_binary} -p={build_dir} -checks={clang_tidy_checks} -line-filter={line_filter} {files}"
     print(f"Running:\n\t{command}")
 
+    start = datetime.datetime.now()
     try:
         output = subprocess.run(
             command, capture_output=True, shell=True, check=True, encoding="utf-8"
@@ -160,6 +162,9 @@ def get_clang_tidy_warnings(
             f"\n\nclang-tidy failed with return code {e.returncode} and error:\n{e.stderr}\nOutput was:\n{e.stdout}"
         )
         raise
+    end = datetime.datetime.now()
+
+    print(f"Took: {end - start}")
 
     return output.stdout.splitlines()
 
