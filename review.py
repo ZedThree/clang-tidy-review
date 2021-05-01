@@ -18,10 +18,12 @@ import requests
 import subprocess
 import textwrap
 import unidiff
+import yaml
 from github import Github
 
 BAD_CHARS_APT_PACKAGES_PATTERN = "[;&|($]"
 DIFF_HEADER_LINE_LENGTH = 5
+FIXES_FILE = "clang_tidy_review.yaml"
 
 
 def make_file_line_lookup(diff):
@@ -44,10 +46,204 @@ def make_file_line_lookup(diff):
     return lookup
 
 
+def make_file_offset_lookup(filenames):
+    """Create a lookup table to convert between character offset and line
+    number for the list of files in `filenames`.
+
+    This is a dict of the cumulative sum of the line lengths for each file.
+
+    """
+    lookup = {}
+
+    for filename in filenames:
+        with open(filename, "r") as file:
+            lines = file.readlines()
+        # Length of each line
+        line_lengths = map(len, lines)
+        # Cumulative sum of line lengths => offset at end of each line
+        lookup[filename] = [0] + list(itertools.accumulate(line_lengths))
+
+    return lookup
+
+
+def find_line_number_from_offset(offset_lookup, offset):
+    """Work out which line number `offset` corresponds to using `offset_lookup`.
+
+    The line number (0-indexed) is the index of the first line offset
+    which is larger than `offset`.
+
+    """
+    for line_num, line_offset in enumerate(offset_lookup):
+        if line_offset >= offset:
+            return line_num - 1
+    return -1
+
+
+def read_one_line(filename, line_offset):
+    """Read a single line from a source file"""
+    with open(filename, "r") as file:
+        file.seek(line_offset)
+        return file.readline().rstrip()
+
+
+def string_insert(string, insert_text, position, length):
+    """Insert `insert_text` into `string` at `position`"""
+    return string[:position] + insert_text + string[position + length :]
+
+
+def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup):
+    """Create a comment from a diagnostic
+
+    Comment contains the diagnostic message, plus its name, along with
+    code block(s) containing either the exact location of the
+    diagnostic, or suggested fix(es).
+
+    """
+    root = os.getcwd()
+    filename = diagnostic["FilePath"]
+    line_num = find_line_number_from_offset(
+        offset_lookup[filename], diagnostic["FileOffset"]
+    )
+    line_offset = diagnostic["FileOffset"] - offset_lookup[filename][line_num]
+
+    source_line = read_one_line(filename, offset_lookup[filename][line_num])
+
+    if diagnostic["Replacements"] == []:
+        # No fixit, so just point at the problem
+        code_blocks = textwrap.dedent(
+            f"""\
+            ```cpp
+            {textwrap.dedent(source_line).strip()}
+            {line_offset * " " + "^"}
+            ```
+            """
+        )
+    else:
+        # We're going to be appending to this
+        code_blocks = ""
+        for replacement in diagnostic["Replacements"]:
+            # It's possible the replacement is needed in another file?
+            # Not really sure how that could come about, but let's
+            # cover our behinds in case it does happen:
+            if replacement["FilePath"] not in offset_lookup:
+                # Let's make sure we've the file offsets for this other file
+                offset_lookup.update(make_file_offset_lookup([replacement["FilePath"]]))
+
+            replacement_line_num = find_line_number_from_offset(
+                offset_lookup[replacement["FilePath"]], replacement["Offset"]
+            )
+            replacement_line_offset = (
+                replacement["Offset"]
+                - offset_lookup[replacement["FilePath"]][replacement_line_num]
+            )
+
+            # If the replacement is for the same line as the
+            # diagnostic (which is where the comment will be), then
+            # format the replacement as a suggestion. Otherwise,
+            # format it as a diff
+            if replacement_line_num == line_num:
+                # Insert the replacement text into the appropriate place,
+                # dropping the newline character
+                new_line = string_insert(
+                    source_line,
+                    replacement["ReplacementText"],
+                    replacement_line_offset,
+                    replacement["Length"],
+                )
+
+                code_blocks += f"""
+```suggestion
+{new_line}
+```
+"""
+            else:
+                source_line = read_one_line(
+                    replacement["FilePath"],
+                    offset_lookup[replacement["FilePath"]][replacement_line_num],
+                )
+
+                new_line = string_insert(
+                    source_line,
+                    replacement["ReplacementText"],
+                    replacement_line_offset,
+                    replacement["Length"],
+                )
+                # Prepend each line in the replacement line with "+ "
+                # in order to make a nice diff block. The extra
+                # whitespace is so the multiline dedent-ed block below
+                # doesn't come out weird.
+                new_line = "\n                    ".join(
+                    [f"+ {line}" for line in new_line.splitlines()]
+                )
+
+                rel_path = os.path.relpath(replacement["FilePath"], root)
+                code_blocks += textwrap.dedent(
+                    f"""\
+
+                    {rel_path}:{replacement_line_num}:
+                    ```diff
+                    - {source_line}
+                    {new_line}
+                    ```
+                    """
+                )
+
+    comment_body = f"{diagnostic['Message']} [{diagnostic_name}]\n{code_blocks}"
+
+    return comment_body
+
+
+def make_review2(diagnostics, diff_lookup, offset_lookup):
+
+    root = os.getcwd()
+    comments = []
+
+    for diagnostic in diagnostics:
+        try:
+            diagnostic_message = diagnostic["DiagnosticMessage"]
+        except KeyError:
+            # Pre-clang-tidy-9 format
+            diagnostic_message = diagnostic
+
+        if diagnostic_message["FilePath"] == "":
+            continue
+
+        comment_body = make_comment_from_diagnostic(
+            diagnostic["DiagnosticName"], diagnostic_message, offset_lookup
+        )
+
+        rel_path = os.path.relpath(diagnostic_message["FilePath"], root)
+        source_line = find_line_number_from_offset(
+            offset_lookup[diagnostic_message["FilePath"]],
+            diagnostic_message["FileOffset"],
+        )
+
+        try:
+            comments.append(
+                {
+                    "path": rel_path,
+                    "body": comment_body,
+                    "position": diff_lookup[rel_path][source_line],
+                }
+            )
+        except KeyError:
+            print(
+                f"WARNING: Skipping comment for file '{rel_path}' not in PR changeset. Comment body is:\n{comment_body}"
+            )
+
+    review = {
+        "body": "clang-tidy made some suggestions",
+        "event": "COMMENT",
+        "comments": comments,
+    }
+    return review
+
+
 def make_review(contents, lookup):
     """Construct a Github PR review given some warnings and a lookup table"""
     root = os.getcwd()
     comments = []
+
     for num, line in enumerate(contents):
         if "warning" in line:
             if line.startswith("warning"):
@@ -149,14 +345,12 @@ def get_clang_tidy_warnings(
 ):
     """Get the clang-tidy warnings"""
 
-    command = f"{clang_tidy_binary} -p={build_dir} -checks={clang_tidy_checks} -line-filter={line_filter} {files}"
+    command = f"{clang_tidy_binary} -p={build_dir} -checks={clang_tidy_checks} -line-filter={line_filter} {files} --export-fixes={FIXES_FILE}"
     print(f"Running:\n\t{command}")
 
     start = datetime.datetime.now()
     try:
-        output = subprocess.run(
-            command, capture_output=True, shell=True, check=True, encoding="utf-8"
-        )
+        subprocess.run(command, shell=True, check=True, encoding="utf-8")
     except subprocess.CalledProcessError as e:
         print(
             f"\n\nclang-tidy failed with return code {e.returncode} and error:\n{e.stderr}\nOutput was:\n{e.stdout}"
@@ -166,7 +360,10 @@ def get_clang_tidy_warnings(
 
     print(f"Took: {end - start}")
 
-    return output.stdout.splitlines()
+    with open(FIXES_FILE, "r") as fixes_file:
+        fixes = yaml.safe_load(fixes_file)
+
+    return fixes
 
 
 def post_lgtm_comment(pull_request):
@@ -257,8 +454,9 @@ def main(
     )
     print("clang-tidy had the following warnings:\n", clang_tidy_warnings, flush=True)
 
-    lookup = make_file_line_lookup(diff)
-    review = make_review(clang_tidy_warnings, lookup)
+    diff_lookup = make_file_line_lookup(diff)
+    offset_lookup = make_file_offset_lookup(files)
+    review = make_review2(clang_tidy_warnings, diff_lookup, offset_lookup)
 
     print("Created the following review:\n", pprint.pformat(review), flush=True)
 
