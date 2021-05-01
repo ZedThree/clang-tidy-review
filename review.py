@@ -61,7 +61,7 @@ def make_file_offset_lookup(filenames):
         # Length of each line
         line_lengths = map(len, lines)
         # Cumulative sum of line lengths => offset at end of each line
-        lookup[filename] = [0] + list(itertools.accumulate(line_lengths))
+        lookup[os.path.abspath(filename)] = [0] + list(itertools.accumulate(line_lengths))
 
     return lookup
 
@@ -74,7 +74,7 @@ def find_line_number_from_offset(offset_lookup, offset):
 
     """
     for line_num, line_offset in enumerate(offset_lookup):
-        if line_offset >= offset:
+        if line_offset > offset:
             return line_num - 1
     return -1
 
@@ -107,6 +107,10 @@ def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup):
     line_offset = diagnostic["FileOffset"] - offset_lookup[filename][line_num]
 
     source_line = read_one_line(filename, offset_lookup[filename][line_num])
+
+    print(f"""{diagnostic}
+    {line_num=};    {line_offset=};    {source_line=}
+    """)
 
     if diagnostic["Replacements"] == []:
         # No fixit, so just point at the problem
@@ -213,7 +217,8 @@ def make_review2(diagnostics, diff_lookup, offset_lookup):
         )
 
         rel_path = os.path.relpath(diagnostic_message["FilePath"], root)
-        source_line = find_line_number_from_offset(
+        # diff lines are 1-indexed
+        source_line = 1 + find_line_number_from_offset(
             offset_lookup[diagnostic_message["FilePath"]],
             diagnostic_message["FileOffset"],
         )
@@ -456,7 +461,7 @@ def main(
 
     diff_lookup = make_file_line_lookup(diff)
     offset_lookup = make_file_offset_lookup(files)
-    review = make_review2(clang_tidy_warnings, diff_lookup, offset_lookup)
+    review = make_review2(clang_tidy_warnings["Diagnostics"], diff_lookup, offset_lookup)
 
     print("Created the following review:\n", pprint.pformat(review), flush=True)
 
