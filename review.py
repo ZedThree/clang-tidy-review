@@ -61,7 +61,9 @@ def make_file_offset_lookup(filenames):
         # Length of each line
         line_lengths = map(len, lines)
         # Cumulative sum of line lengths => offset at end of each line
-        lookup[os.path.abspath(filename)] = [0] + list(itertools.accumulate(line_lengths))
+        lookup[os.path.abspath(filename)] = [0] + list(
+            itertools.accumulate(line_lengths)
+        )
 
     return lookup
 
@@ -81,14 +83,101 @@ def find_line_number_from_offset(offset_lookup, offset):
 
 def read_one_line(filename, line_offset):
     """Read a single line from a source file"""
+    # Could cache the files instead of opening them each time?
     with open(filename, "r") as file:
         file.seek(line_offset)
-        return file.readline().rstrip()
+        return file.readline().rstrip("\n")
 
 
-def string_insert(string, insert_text, position, length):
-    """Insert `insert_text` into `string` at `position`"""
-    return string[:position] + insert_text + string[position + length :]
+def collate_replacement_sets(diagnostic, offset_lookup):
+    """Return a dict of replacements on the same or consecutive lines, indexed by line number
+
+    We need this as we have to apply all the replacements on one line at the same time
+
+    This could break if there are replacements in with the same line
+    number but in different files.
+
+    """
+
+    # First, make sure each replacement contains "LineNumber", and
+    # "EndLineNumber" in case it spans multiple lines
+    for replacement in diagnostic["Replacements"]:
+        # It's possible the replacement is needed in another file?
+        # Not really sure how that could come about, but let's
+        # cover our behinds in case it does happen:
+        if replacement["FilePath"] not in offset_lookup:
+            # Let's make sure we've the file offsets for this other file
+            offset_lookup.update(make_file_offset_lookup([replacement["FilePath"]]))
+
+        replacement["LineNumber"] = find_line_number_from_offset(
+            offset_lookup[replacement["FilePath"]], replacement["Offset"]
+        )
+        replacement["EndLineNumber"] = find_line_number_from_offset(
+            offset_lookup[replacement["FilePath"]],
+            replacement["Offset"] + replacement["Length"],
+        )
+
+    # Now we can group them into consecutive lines
+    groups = []
+    for index, replacement in enumerate(diagnostic["Replacements"]):
+        if index == 0:
+            # First one starts a new group, always
+            groups.append([replacement])
+        elif (
+            replacement["LineNumber"] == groups[-1][-1]["LineNumber"]
+            or replacement["LineNumber"] - 1 == groups[-1][-1]["LineNumber"]
+        ):
+            # Same or adjacent line to the last line in the last group
+            # goes in the same group
+            groups[-1].append(replacement)
+        else:
+            # Otherwise, start a new group
+            groups.append([replacement])
+
+    # Turn the list into a dict
+    return {g[0]["LineNumber"]: g for g in groups}
+
+
+def replace_one_line(replacement_set, line_num, offset_lookup):
+    """Apply all the replacements in replacement_set at the same time"""
+
+    filename = replacement_set[0]["FilePath"]
+    # File offset at the start of the first line
+    line_offset = offset_lookup[filename][line_num]
+
+    # List of (start, end) offsets from line_offset
+    insert_offsets = [(0, 0)]
+    # Read all the source lines into a dict so we only get one copy of
+    # each line, though we might read the same line in multiple times
+    source_lines = {}
+    for replacement in replacement_set:
+        start = replacement["Offset"] - line_offset
+        end = start + replacement["Length"]
+        insert_offsets.append((start, end))
+
+        # Make sure to read any extra lines we need too
+        for replacement_line_num in range(
+            replacement["LineNumber"], replacement["EndLineNumber"] + 1
+        ):
+            replacement_line_offset = offset_lookup[filename][replacement_line_num]
+            source_lines[replacement_line_num] = (
+                read_one_line(filename, replacement_line_offset) + "\n"
+            )
+
+    # Replacements might cross multiple lines, so squash them all together
+    source_line = "".join(source_lines.values()).rstrip("\n")
+
+    insert_offsets.append((None, None))
+
+    fragments = []
+    for (_, start), (end, _) in zip(insert_offsets[:-1], insert_offsets[1:]):
+        fragments.append(source_line[start:end])
+
+    new_line = ""
+    for fragment, replacement in zip(fragments, replacement_set):
+        new_line += fragment + replacement["ReplacementText"]
+
+    return source_line, new_line + fragments[-1]
 
 
 def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup):
@@ -107,10 +196,13 @@ def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup):
     line_offset = diagnostic["FileOffset"] - offset_lookup[filename][line_num]
 
     source_line = read_one_line(filename, offset_lookup[filename][line_num])
+    end_line = line_num
 
-    print(f"""{diagnostic}
+    print(
+        f"""{diagnostic}
     {line_num=};    {line_offset=};    {source_line=}
-    """)
+    """
+    )
 
     if diagnostic["Replacements"] == []:
         # No fixit, so just point at the problem
@@ -125,53 +217,28 @@ def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup):
     else:
         # We're going to be appending to this
         code_blocks = ""
-        for replacement in diagnostic["Replacements"]:
-            # It's possible the replacement is needed in another file?
-            # Not really sure how that could come about, but let's
-            # cover our behinds in case it does happen:
-            if replacement["FilePath"] not in offset_lookup:
-                # Let's make sure we've the file offsets for this other file
-                offset_lookup.update(make_file_offset_lookup([replacement["FilePath"]]))
 
-            replacement_line_num = find_line_number_from_offset(
-                offset_lookup[replacement["FilePath"]], replacement["Offset"]
+        replacement_sets = collate_replacement_sets(diagnostic, offset_lookup)
+
+        for replacement_line_num, replacement_set in replacement_sets.items():
+            old_line, new_line = replace_one_line(
+                replacement_set, replacement_line_num, offset_lookup
             )
-            replacement_line_offset = (
-                replacement["Offset"]
-                - offset_lookup[replacement["FilePath"]][replacement_line_num]
-            )
+
+            print(f"----------\n{old_line=}\n{new_line=}\n----------")
 
             # If the replacement is for the same line as the
             # diagnostic (which is where the comment will be), then
             # format the replacement as a suggestion. Otherwise,
             # format it as a diff
             if replacement_line_num == line_num:
-                # Insert the replacement text into the appropriate place,
-                # dropping the newline character
-                new_line = string_insert(
-                    source_line,
-                    replacement["ReplacementText"],
-                    replacement_line_offset,
-                    replacement["Length"],
-                )
-
                 code_blocks += f"""
 ```suggestion
 {new_line}
 ```
 """
+                end_line = replacement_set[-1]["EndLineNumber"]
             else:
-                source_line = read_one_line(
-                    replacement["FilePath"],
-                    offset_lookup[replacement["FilePath"]][replacement_line_num],
-                )
-
-                new_line = string_insert(
-                    source_line,
-                    replacement["ReplacementText"],
-                    replacement_line_offset,
-                    replacement["Length"],
-                )
                 # Prepend each line in the replacement line with "+ "
                 # in order to make a nice diff block. The extra
                 # whitespace is so the multiline dedent-ed block below
@@ -180,24 +247,26 @@ def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup):
                     [f"+ {line}" for line in new_line.splitlines()]
                 )
 
-                rel_path = os.path.relpath(replacement["FilePath"], root)
+                rel_path = os.path.relpath(replacement_set[0]["FilePath"], root)
                 code_blocks += textwrap.dedent(
                     f"""\
 
                     {rel_path}:{replacement_line_num}:
                     ```diff
-                    - {source_line}
+                    - {old_line}
                     {new_line}
                     ```
                     """
                 )
 
-    comment_body = f"{diagnostic['Message']} [{diagnostic_name}]\n{code_blocks}"
+    comment_body = (
+        f"warning: {diagnostic['Message']} [{diagnostic_name}]\n{code_blocks}"
+    )
 
-    return comment_body
+    return comment_body, end_line + 1
 
 
-def make_review2(diagnostics, diff_lookup, offset_lookup):
+def make_review(diagnostics, diff_lookup, offset_lookup):
 
     root = os.getcwd()
     comments = []
@@ -212,7 +281,7 @@ def make_review2(diagnostics, diff_lookup, offset_lookup):
         if diagnostic_message["FilePath"] == "":
             continue
 
-        comment_body = make_comment_from_diagnostic(
+        comment_body, end_line = make_comment_from_diagnostic(
             diagnostic["DiagnosticName"], diagnostic_message, offset_lookup
         )
 
@@ -228,59 +297,23 @@ def make_review2(diagnostics, diff_lookup, offset_lookup):
                 {
                     "path": rel_path,
                     "body": comment_body,
-                    "position": diff_lookup[rel_path][source_line],
+                    "side": "RIGHT",
+                    "line": end_line,
+                    # "position": diff_lookup[rel_path][source_line],
                 }
             )
+            # If this is a multiline comment, we need a couple more bits:
+            if end_line != source_line:
+                comments[-1].update(
+                    {
+                        "start_side": "RIGHT",
+                        "start_line": source_line,
+                    }
+                )
         except KeyError:
             print(
                 f"WARNING: Skipping comment for file '{rel_path}' not in PR changeset. Comment body is:\n{comment_body}"
             )
-
-    review = {
-        "body": "clang-tidy made some suggestions",
-        "event": "COMMENT",
-        "comments": comments,
-    }
-    return review
-
-
-def make_review(contents, lookup):
-    """Construct a Github PR review given some warnings and a lookup table"""
-    root = os.getcwd()
-    comments = []
-
-    for num, line in enumerate(contents):
-        if "warning" in line:
-            if line.startswith("warning"):
-                # Some warnings don't have the file path, skip them
-                # FIXME: Find a better way to handle this
-                continue
-            full_path, source_line, _, warning = line.split(":", maxsplit=3)
-            rel_path = os.path.relpath(full_path, root)
-            body = ""
-            for line2 in contents[num + 1 :]:
-                if "warning" in line2:
-                    break
-                body += "\n" + line2.replace(full_path, rel_path)
-
-            comment_body = f"""{warning.strip().replace("'", "`")}
-
-```cpp
-{textwrap.dedent(body).strip()}
-```
-"""
-            try:
-                comments.append(
-                    {
-                        "path": rel_path,
-                        "body": comment_body,
-                        "position": lookup[rel_path][int(source_line)],
-                    }
-                )
-            except KeyError:
-                print(
-                    f"WARNING: Skipping comment for file '{rel_path}' not in PR changeset. Comment body is:\n{comment_body}"
-                )
 
     review = {
         "body": "clang-tidy made some suggestions",
@@ -417,6 +450,20 @@ def cull_comments(pull_request, review, max_comments):
     return review
 
 
+def post_review(review, repo, pr_number, token):
+    # pull_request.create_review(**review)
+
+    headers = {
+        "Accept": "application/vnd.github.comfort-fade-preview+json",
+        "Authorization": f"token {token}",
+    }
+    url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews"
+
+    post_review_response = requests.post(url, json=review, headers=headers)
+    print(post_review_response.text)
+    post_review_response.raise_for_status()
+
+
 def main(
     repo,
     pr_number,
@@ -461,13 +508,13 @@ def main(
 
     diff_lookup = make_file_line_lookup(diff)
     offset_lookup = make_file_offset_lookup(files)
-    review = make_review2(clang_tidy_warnings["Diagnostics"], diff_lookup, offset_lookup)
+    review = make_review(clang_tidy_warnings["Diagnostics"], diff_lookup, offset_lookup)
 
     print("Created the following review:\n", pprint.pformat(review), flush=True)
 
     github = Github(token)
-    repo = github.get_repo(f"{repo}")
-    pull_request = repo.get_pull(pr_number)
+    repo_object = github.get_repo(f"{repo}")
+    pull_request = repo_object.get_pull(pr_number)
 
     if review["comments"] == []:
         post_lgtm_comment(pull_request)
@@ -483,7 +530,7 @@ def main(
         return review
 
     print("Posting the review:\n", pprint.pformat(trimmed_review), flush=True)
-    pull_request.create_review(**trimmed_review)
+    post_review(trimmed_review, repo, pr_number, token)
 
 
 if __name__ == "__main__":
