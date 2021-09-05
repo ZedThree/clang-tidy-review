@@ -33,7 +33,7 @@ jobs:
 
     # Optionally generate compile_commands.json
 
-    - uses: ZedThree/clang-tidy-review@v0.6.0
+    - uses: ZedThree/clang-tidy-review@v0.7.0
       id: review
     # If there are any comments, fail the check
     - if: steps.review.outputs.total_comments > 0
