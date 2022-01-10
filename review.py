@@ -350,11 +350,15 @@ if __name__ == "__main__":
         original_directory = compile_commands[0]["directory"]
 
         # directory should either end with the build directory,
-        # unless it's '.', in which case use all of directory
+        # unless it's '.', in which case use all of the directory,
+        # excluding the trailing /.
         if original_directory.endswith(args.build_dir):
             build_dir_index = -(len(args.build_dir) + 1)
         elif args.build_dir == ".":
-            build_dir_index = -1
+            if (original_directory.endswith("/")):
+                build_dir_index = -1
+            else:
+                build_dir_index = len(original_directory) + 1
         else:
             raise RuntimeError(
                 f"compile_commands.json contains absolute paths that I don't know how to deal with: '{original_directory}'"
