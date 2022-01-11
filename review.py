@@ -353,14 +353,14 @@ if __name__ == "__main__":
         # unless it's '.', in which case use all of directory
         if original_directory.endswith(args.build_dir):
             build_dir_index = -(len(args.build_dir) + 1)
+            basedir = original_directory[:build_dir_index]
         elif args.build_dir == ".":
-            build_dir_index = -1
+            basedir = original_directory
         else:
             raise RuntimeError(
                 f"compile_commands.json contains absolute paths that I don't know how to deal with: '{original_directory}'"
             )
 
-        basedir = original_directory[:build_dir_index]
         newbasedir = os.getcwd()
 
         print(f"Replacing '{basedir}' with '{newbasedir}'", flush=True)
