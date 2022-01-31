@@ -5,6 +5,7 @@ COPY requirements.txt /requirements.txt
 RUN apt update && \
     DEBIAN_FRONTEND=noninteractive \
     apt-get install -y --no-install-recommends\
+    build-essential cmake git \
     tzdata \
     clang-tidy-6.0 \
     clang-tidy-7 \
