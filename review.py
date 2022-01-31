@@ -225,6 +225,7 @@ def main(
     include,
     exclude,
     max_comments,
+    dry_run: bool = False,
 ):
 
     diff = get_pr_diff(repo, pr_number, token)
@@ -265,6 +266,10 @@ def main(
     github = Github(token)
     repo = github.get_repo(f"{repo}")
     pull_request = repo.get_pull(pr_number)
+
+    if dry_run:
+        pprint.pprint(review)
+        return
 
     if review["comments"] == []:
         post_lgtm_comment(pull_request)
@@ -326,6 +331,9 @@ if __name__ == "__main__":
         default=25,
     )
     parser.add_argument("--token", help="github auth token")
+    parser.add_argument(
+        "--dry-run", help="Run and generate review, but don't post", action="store_true"
+    )
 
     args = parser.parse_args()
 
@@ -387,4 +395,5 @@ if __name__ == "__main__":
         include=include,
         exclude=exclude,
         max_comments=args.max_comments,
+        dry_run=args.dry_run,
     )
