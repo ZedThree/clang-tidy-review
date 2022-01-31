@@ -145,11 +145,18 @@ def get_line_ranges(diff, files):
 
 
 def get_clang_tidy_warnings(
-    line_filter, build_dir, clang_tidy_checks, clang_tidy_binary, files
+    line_filter, build_dir, clang_tidy_checks, clang_tidy_binary, config_file, files
 ):
     """Get the clang-tidy warnings"""
 
-    command = f"{clang_tidy_binary} -p={build_dir} -checks={clang_tidy_checks} -line-filter={line_filter} {files}"
+    if config_file != "":
+        config = f"-config-file={config_file}"
+    else:
+        config = f"-checks={clang_tidy_checks}"
+
+    print(f"Using config: {config}")
+
+    command = f"{clang_tidy_binary} -p={build_dir} {config} -line-filter={line_filter} {files}"
     print(f"Running:\n\t{command}")
 
     start = datetime.datetime.now()
@@ -221,10 +228,12 @@ def main(
     build_dir,
     clang_tidy_checks,
     clang_tidy_binary,
+    config_file,
     token,
     include,
     exclude,
     max_comments,
+    dry_run: bool = False,
 ):
 
     diff = get_pr_diff(repo, pr_number, token)
@@ -253,7 +262,12 @@ def main(
     print(f"Line filter for clang-tidy:\n{line_ranges}\n")
 
     clang_tidy_warnings = get_clang_tidy_warnings(
-        line_ranges, build_dir, clang_tidy_checks, clang_tidy_binary, " ".join(files)
+        line_ranges,
+        build_dir,
+        clang_tidy_checks,
+        clang_tidy_binary,
+        config_file,
+        " ".join(files),
     )
     print("clang-tidy had the following warnings:\n", clang_tidy_warnings, flush=True)
 
@@ -265,6 +279,10 @@ def main(
     github = Github(token)
     repo = github.get_repo(f"{repo}")
     pull_request = repo.get_pull(pr_number)
+
+    if dry_run:
+        pprint.pprint(review)
+        return
 
     if review["comments"] == []:
         post_lgtm_comment(pull_request)
@@ -301,6 +319,11 @@ if __name__ == "__main__":
         default="'-*,performance-*,readability-*,bugprone-*,clang-analyzer-*,cppcoreguidelines-*,mpi-*,misc-*'",
     )
     parser.add_argument(
+        "--config_file",
+        help="Path to .clang-tidy config file. If not empty, takes precedence over --clang_tidy_checks",
+        default="",
+    )
+    parser.add_argument(
         "--include",
         help="Comma-separated list of files or patterns to include",
         type=str,
@@ -326,6 +349,9 @@ if __name__ == "__main__":
         default=25,
     )
     parser.add_argument("--token", help="github auth token")
+    parser.add_argument(
+        "--dry-run", help="Run and generate review, but don't post", action="store_true"
+    )
 
     args = parser.parse_args()
 
@@ -383,8 +409,10 @@ if __name__ == "__main__":
         build_dir=args.build_dir,
         clang_tidy_checks=args.clang_tidy_checks,
         clang_tidy_binary=args.clang_tidy_binary,
+        config_file=args.config_file,
         token=args.token,
         include=include,
         exclude=exclude,
         max_comments=args.max_comments,
+        dry_run=args.dry_run,
     )
