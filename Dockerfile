@@ -18,6 +18,5 @@ RUN apt update && \
     pip3 install -r requirements.txt
 
 COPY review.py /review.py
-COPY entrypoint.sh /entrypoint.sh
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/review.py"]
