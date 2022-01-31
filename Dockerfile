@@ -12,6 +12,7 @@ RUN apt update && \
     clang-tidy-9 \
     clang-tidy-10 \
     clang-tidy-11 \
+    clang-tidy-12 \
     python3 python3-pip && \
     pip3 install --upgrade pip && \
     pip3 install -r requirements.txt
