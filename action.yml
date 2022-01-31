@@ -66,4 +66,4 @@ runs:
     - --include='${{ inputs.include }}'
     - --exclude='${{ inputs.exclude }}'
     - --apt-packages=${{ inputs.apt_packages }}
-    - --cmake-command='${{ inputs.cmake_command }}'
+    - --cmake-command='"${{ inputs.cmake_command }}"'
