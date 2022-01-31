@@ -343,6 +343,12 @@ if __name__ == "__main__":
         default="",
     )
     parser.add_argument(
+        "--cmake-command",
+        help="If set, run CMake as part of the action with this command",
+        type=str,
+        default="",
+    )
+    parser.add_argument(
         "--max-comments",
         help="Maximum number of comments to post at once",
         type=int,
@@ -371,7 +377,13 @@ if __name__ == "__main__":
 
     build_compile_commands = f"{args.build_dir}/compile_commands.json"
 
-    if os.path.exists(build_compile_commands):
+    # If we run CMake as part of the action, then we know the paths in
+    # the compile_commands.json file are going to be correct
+    if args.cmake_command:
+        print(f"Running cmake: {args.cmake_command}")
+        subprocess.run(args.cmake_command, shell=True, check=True)
+
+    elif os.path.exists(build_compile_commands):
         print(f"Found '{build_compile_commands}', updating absolute paths")
         # We might need to change some absolute paths if we're inside
         # a docker container
@@ -381,7 +393,7 @@ if __name__ == "__main__":
         original_directory = compile_commands[0]["directory"]
 
         # directory should either end with the build directory,
-        # unless it's '.', in which case use all of directory
+        # unless it's '.', in which case use original directory
         if original_directory.endswith(args.build_dir):
             build_dir_index = -(len(args.build_dir) + 1)
             basedir = original_directory[:build_dir_index]
