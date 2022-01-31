@@ -145,11 +145,18 @@ def get_line_ranges(diff, files):
 
 
 def get_clang_tidy_warnings(
-    line_filter, build_dir, clang_tidy_checks, clang_tidy_binary, files
+    line_filter, build_dir, clang_tidy_checks, clang_tidy_binary, config_file, files
 ):
     """Get the clang-tidy warnings"""
 
-    command = f"{clang_tidy_binary} -p={build_dir} -checks={clang_tidy_checks} -line-filter={line_filter} {files}"
+    if config_file != "":
+        config = f"-config-file={config_file}"
+    else:
+        config = f"-checks={clang_tidy_checks}"
+
+    print(f"Using config: {config}")
+
+    command = f"{clang_tidy_binary} -p={build_dir} {config} -line-filter={line_filter} {files}"
     print(f"Running:\n\t{command}")
 
     start = datetime.datetime.now()
@@ -221,6 +228,7 @@ def main(
     build_dir,
     clang_tidy_checks,
     clang_tidy_binary,
+    config_file,
     token,
     include,
     exclude,
@@ -254,7 +262,12 @@ def main(
     print(f"Line filter for clang-tidy:\n{line_ranges}\n")
 
     clang_tidy_warnings = get_clang_tidy_warnings(
-        line_ranges, build_dir, clang_tidy_checks, clang_tidy_binary, " ".join(files)
+        line_ranges,
+        build_dir,
+        clang_tidy_checks,
+        clang_tidy_binary,
+        config_file,
+        " ".join(files),
     )
     print("clang-tidy had the following warnings:\n", clang_tidy_warnings, flush=True)
 
@@ -304,6 +317,11 @@ if __name__ == "__main__":
         "--clang_tidy_checks",
         help="checks argument",
         default="'-*,performance-*,readability-*,bugprone-*,clang-analyzer-*,cppcoreguidelines-*,mpi-*,misc-*'",
+    )
+    parser.add_argument(
+        "--config_file",
+        help="Path to .clang-tidy config file. If not empty, takes precedence over --clang_tidy_checks",
+        default="",
     )
     parser.add_argument(
         "--include",
@@ -391,6 +409,7 @@ if __name__ == "__main__":
         build_dir=args.build_dir,
         clang_tidy_checks=args.clang_tidy_checks,
         clang_tidy_binary=args.clang_tidy_binary,
+        config_file=args.config_file,
         token=args.token,
         include=include,
         exclude=exclude,
