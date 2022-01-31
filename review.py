@@ -6,6 +6,7 @@
 # See LICENSE for more information
 
 import argparse
+import contextlib
 import datetime
 import itertools
 import fnmatch
@@ -22,6 +23,15 @@ from github import Github
 
 BAD_CHARS_APT_PACKAGES_PATTERN = "[;&|($]"
 DIFF_HEADER_LINE_LENGTH = 5
+
+
+@contextlib.contextmanager
+def message_group(title: str):
+    print(f"::group::{title}", flush=True)
+    try:
+        yield
+    finally:
+        print("::endgroup::", flush=True)
 
 
 def make_file_line_lookup(diff):
@@ -157,13 +167,13 @@ def get_clang_tidy_warnings(
     print(f"Using config: {config}")
 
     command = f"{clang_tidy_binary} -p={build_dir} {config} -line-filter={line_filter} {files}"
-    print(f"Running:\n\t{command}")
 
     start = datetime.datetime.now()
     try:
-        output = subprocess.run(
-            command, capture_output=True, shell=True, check=True, encoding="utf-8"
-        )
+        with message_group(f"Running:\n\t{command}"):
+            output = subprocess.run(
+                command, capture_output=True, shell=True, check=True, encoding="utf-8"
+            )
     except subprocess.CalledProcessError as e:
         print(
             f"\n\nclang-tidy failed with return code {e.returncode} and error:\n{e.stderr}\nOutput was:\n{e.stdout}"
@@ -382,10 +392,10 @@ if __name__ == "__main__":
         apt_packages = re.split(BAD_CHARS_APT_PACKAGES_PATTERN, args.apt_packages)[
             0
         ].split(",")
-        print("Installing additional packages:", apt_packages, flush=True)
-        subprocess.run(
-            ["apt", "install", "-y", "--no-install-recommends"] + apt_packages
-        )
+        with message_group(f"Installing additional packages: {apt_packages}"):
+            subprocess.run(
+                ["apt", "install", "-y", "--no-install-recommends"] + apt_packages
+            )
 
     build_compile_commands = f"{args.build_dir}/compile_commands.json"
 
@@ -393,8 +403,8 @@ if __name__ == "__main__":
     # the compile_commands.json file are going to be correct
     if args.cmake_command:
         cmake_command = strip_enclosing_quotes(args.cmake_command)
-        print(f"Running cmake: {cmake_command}", flush=True)
-        subprocess.run(cmake_command, shell=True, check=True)
+        with message_group(f"Running cmake: {cmake_command}"):
+            subprocess.run(cmake_command, shell=True, check=True)
 
     elif os.path.exists(build_compile_commands):
         print(f"Found '{build_compile_commands}', updating absolute paths")
