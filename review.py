@@ -301,6 +301,18 @@ def main(
     pull_request.create_review(**trimmed_review)
 
 
+def strip_enclosing_quotes(string: str) -> str:
+    """Strip leading/trailing whitespace and remove any enclosing quotes"""
+    stripped = string.strip()
+
+    # Need to check double quotes again in case they're nested inside
+    # single quotes
+    for quote in ['"', "'", '"']:
+        if stripped.startswith(quote) and stripped.endswith(quote):
+            stripped = stripped[1:-1]
+    return stripped
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Create a review from clang-tidy warnings"
@@ -362,8 +374,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Remove any enclosing quotes and extra whitespace
-    exclude = args.exclude.strip(""" "'""").split(",")
-    include = args.include.strip(""" "'""").split(",")
+    exclude = strip_enclosing_quotes(args.exclude).split(",")
+    include = strip_enclosing_quotes(args.include).split(",")
 
     if args.apt_packages:
         # Try to make sure only 'apt install' is run
@@ -380,8 +392,9 @@ if __name__ == "__main__":
     # If we run CMake as part of the action, then we know the paths in
     # the compile_commands.json file are going to be correct
     if args.cmake_command:
-        print(f"Running cmake: {args.cmake_command}")
-        subprocess.run(args.cmake_command, shell=True, check=True)
+        cmake_command = strip_enclosing_quotes(args.cmake_command)
+        print(f"Running cmake: {cmake_command}")
+        subprocess.run(cmake_command, shell=True, check=True)
 
     elif os.path.exists(build_compile_commands):
         print(f"Found '{build_compile_commands}', updating absolute paths")
