@@ -382,7 +382,7 @@ if __name__ == "__main__":
         apt_packages = re.split(BAD_CHARS_APT_PACKAGES_PATTERN, args.apt_packages)[
             0
         ].split(",")
-        print("Installing additional packages:", apt_packages)
+        print("Installing additional packages:", apt_packages, flush=True)
         subprocess.run(
             ["apt", "install", "-y", "--no-install-recommends"] + apt_packages
         )
@@ -393,7 +393,7 @@ if __name__ == "__main__":
     # the compile_commands.json file are going to be correct
     if args.cmake_command:
         cmake_command = strip_enclosing_quotes(args.cmake_command)
-        print(f"Running cmake: {cmake_command}")
+        print(f"Running cmake: {cmake_command}", flush=True)
         subprocess.run(cmake_command, shell=True, check=True)
 
     elif os.path.exists(build_compile_commands):
