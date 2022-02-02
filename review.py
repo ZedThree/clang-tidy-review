@@ -6,6 +6,7 @@
 # See LICENSE for more information
 
 import argparse
+import contextlib
 import datetime
 import itertools
 import fnmatch
@@ -24,6 +25,15 @@ from github import Github
 BAD_CHARS_APT_PACKAGES_PATTERN = "[;&|($]"
 DIFF_HEADER_LINE_LENGTH = 5
 FIXES_FILE = "clang_tidy_review.yaml"
+
+
+@contextlib.contextmanager
+def message_group(title: str):
+    print(f"::group::{title}", flush=True)
+    try:
+        yield
+    finally:
+        print("::endgroup::", flush=True)
 
 
 def make_file_line_lookup(diff):
@@ -379,22 +389,33 @@ def get_line_ranges(diff, files):
 
 
 def get_clang_tidy_warnings(
-    line_filter, build_dir, clang_tidy_checks, clang_tidy_binary, files
+    line_filter, build_dir, clang_tidy_checks, clang_tidy_binary, config_file, files
 ):
     """Get the clang-tidy warnings"""
 
-    command = f"{clang_tidy_binary} -p={build_dir} -checks={clang_tidy_checks} -line-filter={line_filter} {files} --export-fixes={FIXES_FILE}"
-    print(f"Running:\n\t{command}")
+    if config_file != "":
+        config = f"-config-file={config_file}"
+    else:
+        config = f"-checks={clang_tidy_checks}"
+
+    print(f"Using config: {config}")
+
+    command = f"{clang_tidy_binary} -p={build_dir} {config} -line-filter={line_filter} {files} --export-fixes={FIXES_FILE}"
 
     start = datetime.datetime.now()
     try:
-        subprocess.run(command, shell=True, check=True, encoding="utf-8")
+        with message_group(f"Running:\n\t{command}"):
+            output = subprocess.run(
+                command, capture_output=True, shell=True, check=True, encoding="utf-8"
+            )
     except subprocess.CalledProcessError as e:
         print(
             f"\n\nclang-tidy failed with return code {e.returncode} and error:\n{e.stderr}\nOutput was:\n{e.stdout}"
         )
         raise
     end = datetime.datetime.now()
+
+    print(f"Took: {end - start}")
 
     print(f"Took: {end - start}")
 
@@ -470,10 +491,12 @@ def main(
     build_dir,
     clang_tidy_checks,
     clang_tidy_binary,
+    config_file,
     token,
     include,
     exclude,
     max_comments,
+    dry_run: bool = False,
 ):
 
     diff = get_pr_diff(repo, pr_number, token)
@@ -502,7 +525,12 @@ def main(
     print(f"Line filter for clang-tidy:\n{line_ranges}\n")
 
     clang_tidy_warnings = get_clang_tidy_warnings(
-        line_ranges, build_dir, clang_tidy_checks, clang_tidy_binary, " ".join(files)
+        line_ranges,
+        build_dir,
+        clang_tidy_checks,
+        clang_tidy_binary,
+        config_file,
+        " ".join(files),
     )
     print("clang-tidy had the following warnings:\n", clang_tidy_warnings, flush=True)
 
@@ -515,6 +543,10 @@ def main(
     github = Github(token)
     repo_object = github.get_repo(f"{repo}")
     pull_request = repo_object.get_pull(pr_number)
+
+    if dry_run:
+        pprint.pprint(review)
+        return
 
     if review["comments"] == []:
         post_lgtm_comment(pull_request)
@@ -533,6 +565,18 @@ def main(
     post_review(trimmed_review, repo, pr_number, token)
 
 
+def strip_enclosing_quotes(string: str) -> str:
+    """Strip leading/trailing whitespace and remove any enclosing quotes"""
+    stripped = string.strip()
+
+    # Need to check double quotes again in case they're nested inside
+    # single quotes
+    for quote in ['"', "'", '"']:
+        if stripped.startswith(quote) and stripped.endswith(quote):
+            stripped = stripped[1:-1]
+    return stripped
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Create a review from clang-tidy warnings"
@@ -540,7 +584,7 @@ if __name__ == "__main__":
     parser.add_argument("--repo", help="Repo name in form 'owner/repo'")
     parser.add_argument("--pr", help="PR number", type=int)
     parser.add_argument(
-        "--clang_tidy_binary", help="clang-tidy binary", default="clang-tidy-9"
+        "--clang_tidy_binary", help="clang-tidy binary", default="clang-tidy-11"
     )
     parser.add_argument(
         "--build_dir", help="Directory with compile_commands.json", default="."
@@ -549,6 +593,11 @@ if __name__ == "__main__":
         "--clang_tidy_checks",
         help="checks argument",
         default="'-*,performance-*,readability-*,bugprone-*,clang-analyzer-*,cppcoreguidelines-*,mpi-*,misc-*'",
+    )
+    parser.add_argument(
+        "--config_file",
+        help="Path to .clang-tidy config file. If not empty, takes precedence over --clang_tidy_checks",
+        default="",
     )
     parser.add_argument(
         "--include",
@@ -570,32 +619,48 @@ if __name__ == "__main__":
         default="",
     )
     parser.add_argument(
+        "--cmake-command",
+        help="If set, run CMake as part of the action with this command",
+        type=str,
+        default="",
+    )
+    parser.add_argument(
         "--max-comments",
         help="Maximum number of comments to post at once",
         type=int,
         default=25,
     )
     parser.add_argument("--token", help="github auth token")
+    parser.add_argument(
+        "--dry-run", help="Run and generate review, but don't post", action="store_true"
+    )
 
     args = parser.parse_args()
 
     # Remove any enclosing quotes and extra whitespace
-    exclude = args.exclude.strip(""" "'""").split(",")
-    include = args.include.strip(""" "'""").split(",")
+    exclude = strip_enclosing_quotes(args.exclude).split(",")
+    include = strip_enclosing_quotes(args.include).split(",")
 
     if args.apt_packages:
         # Try to make sure only 'apt install' is run
         apt_packages = re.split(BAD_CHARS_APT_PACKAGES_PATTERN, args.apt_packages)[
             0
         ].split(",")
-        print("Installing additional packages:", apt_packages)
-        subprocess.run(
-            ["apt", "install", "-y", "--no-install-recommends"] + apt_packages
-        )
+        with message_group(f"Installing additional packages: {apt_packages}"):
+            subprocess.run(
+                ["apt", "install", "-y", "--no-install-recommends"] + apt_packages
+            )
 
     build_compile_commands = f"{args.build_dir}/compile_commands.json"
 
-    if os.path.exists(build_compile_commands):
+    # If we run CMake as part of the action, then we know the paths in
+    # the compile_commands.json file are going to be correct
+    if args.cmake_command:
+        cmake_command = strip_enclosing_quotes(args.cmake_command)
+        with message_group(f"Running cmake: {cmake_command}"):
+            subprocess.run(cmake_command, shell=True, check=True)
+
+    elif os.path.exists(build_compile_commands):
         print(f"Found '{build_compile_commands}', updating absolute paths")
         # We might need to change some absolute paths if we're inside
         # a docker container
@@ -605,17 +670,17 @@ if __name__ == "__main__":
         original_directory = compile_commands[0]["directory"]
 
         # directory should either end with the build directory,
-        # unless it's '.', in which case use all of directory
+        # unless it's '.', in which case use original directory
         if original_directory.endswith(args.build_dir):
             build_dir_index = -(len(args.build_dir) + 1)
+            basedir = original_directory[:build_dir_index]
         elif args.build_dir == ".":
-            build_dir_index = -1
+            basedir = original_directory
         else:
             raise RuntimeError(
                 f"compile_commands.json contains absolute paths that I don't know how to deal with: '{original_directory}'"
             )
 
-        basedir = original_directory[:build_dir_index]
         newbasedir = os.getcwd()
 
         print(f"Replacing '{basedir}' with '{newbasedir}'", flush=True)
@@ -633,8 +698,10 @@ if __name__ == "__main__":
         build_dir=args.build_dir,
         clang_tidy_checks=args.clang_tidy_checks,
         clang_tidy_binary=args.clang_tidy_binary,
+        config_file=args.config_file,
         token=args.token,
         include=include,
         exclude=exclude,
         max_comments=args.max_comments,
+        dry_run=args.dry_run,
     )

@@ -14,12 +14,16 @@ inputs:
     default: '.'
     required: false
   clang_tidy_version:
-    description: 'Version of clang-tidy to use; one of 6.0, 7, 8, 9, 10'
-    default: '10'
+    description: 'Version of clang-tidy to use; one of 6.0, 7, 8, 9, 10, 11, 12'
+    default: '12'
     required: false
   clang_tidy_checks:
     description: 'List of checks'
     default: '-*,performance-*,readability-*,bugprone-*,clang-analyzer-*,cppcoreguidelines-*,mpi-*,misc-*'
+    required: false
+  config_file:
+    description: 'Location of .clang-tidy config file. If specified, takes preference over `clang_tidy_checks`'
+    default: ''
     required: false
   include:
     description: 'Comma-separated list of files or patterns to include'
@@ -31,6 +35,10 @@ inputs:
     default: ''
   apt_packages:
     description: 'Comma-separated list of apt packages to install'
+    required: false
+    default: ''
+  cmake_command:
+    description: 'If set, run CMake as part of the action using this command'
     required: false
     default: ''
   max_comments:
@@ -54,6 +62,8 @@ runs:
     - --pr=${{ inputs.pr }}
     - --build_dir=${{ inputs.build_dir }}
     - --clang_tidy_checks=${{ inputs.clang_tidy_checks }}
+    - --config_file=${{ inputs.config_file }}
     - --include='${{ inputs.include }}'
     - --exclude='${{ inputs.exclude }}'
     - --apt-packages=${{ inputs.apt_packages }}
+    - --cmake-command='${{ inputs.cmake_command }}'

@@ -33,7 +33,7 @@ jobs:
 
     # Optionally generate compile_commands.json
 
-    - uses: ZedThree/clang-tidy-review@v0.6.0
+    - uses: ZedThree/clang-tidy-review@v0.7.0
       id: review
     # If there are any comments, fail the check
     - if: steps.review.outputs.total_comments > 0
@@ -48,6 +48,11 @@ some Python packages. This that means that there's a two-three minutes
 start-up in order to build the Docker container. If you need to
 install some additional packages you can pass them via the
 `apt_packages` argument.
+
+Except for very simple projects, a `compile_commands.json` file is necessary for
+clang-tidy to find headers, set preprocessor macros, and so on. You can generate
+one as part of this Action by setting `cmake_command` to something like `cmake
+. -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=on`.
 
 GitHub only mounts the `GITHUB_WORKSPACE` directory (that is, the
 default place where it clones your repository) on the container. If
@@ -67,15 +72,21 @@ at once, so `clang-tidy-review` will only attempt to post the first
   should be relative to `GITHUB_WORKSPACE` (the default place where your
   repository is cloned)
   - default: `'.'`
-- `clang_tidy_version`: Version of clang-tidy to use; one of 6.0, 7, 8, 9, 10
-  - default: '10'
+- `clang_tidy_version`: Version of clang-tidy to use; one of 6.0, 7, 8, 9, 10, 11
+  - default: '11'
 - `clang_tidy_checks`: List of checks
   - default: `'-*,performance-*,readability-*,bugprone-*,clang-analyzer-*,cppcoreguidelines-*,mpi-*,misc-*'`
+- `config_file`: Path to clang-tidy config file. If set, the config file is used
+  instead of `clang_tidy_checks`
+  - default: ''
 - `include`: Comma-separated list of files or patterns to include
   - default: `"*.[ch],*.[ch]xx,*.[ch]pp,*.[ch]++,*.cc,*.hh"`
 - `exclude`: Comma-separated list of files or patterns to exclude
   - default: ''
 - `apt_packages`: Comma-separated list of apt packages to install
+  - default: ''
+- `cmake_command`: A CMake command to configure your project and generate
+  `compile_commands.json` in `build_dir`
   - default: ''
 - `max_comments`: Maximum number of comments to post at once
   - default: '25'
