@@ -13,6 +13,7 @@ import fnmatch
 import json
 import os
 from operator import itemgetter
+import pathlib
 import pprint
 import re
 import requests
@@ -190,7 +191,109 @@ def replace_one_line(replacement_set, line_num, offset_lookup):
     return source_line, new_line + fragments[-1]
 
 
-def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup):
+def format_ordinary_line(source_line, line_offset):
+    """Format a single C++ line with a diagnostic indicator"""
+
+    return textwrap.dedent(
+        f"""\
+         ```cpp
+         {textwrap.dedent(source_line).strip()}
+         {line_offset * " " + "^"}
+         ```
+         """
+    )
+
+
+def format_diff_line(diagnostic, offset_lookup, source_line, line_offset, line_num):
+    """Format a replacement as a Github suggestion or diff block"""
+
+    end_line = line_num
+
+    # We're going to be appending to this
+    code_blocks = ""
+
+    replacement_sets = collate_replacement_sets(diagnostic, offset_lookup)
+
+    for replacement_line_num, replacement_set in replacement_sets.items():
+        old_line, new_line = replace_one_line(
+            replacement_set, replacement_line_num, offset_lookup
+        )
+
+        print(f"----------\n{old_line=}\n{new_line=}\n----------")
+
+        # If the replacement is for the same line as the
+        # diagnostic (which is where the comment will be), then
+        # format the replacement as a suggestion. Otherwise,
+        # format it as a diff
+        if replacement_line_num == line_num:
+            code_blocks += f"""
+```suggestion
+{new_line}
+```
+"""
+            end_line = replacement_set[-1]["EndLineNumber"]
+        else:
+            # Prepend each line in the replacement line with "+ "
+            # in order to make a nice diff block. The extra
+            # whitespace is so the multiline dedent-ed block below
+            # doesn't come out weird.
+            whitespace = "\n                "
+            new_line = whitespace.join([f"+ {line}" for line in new_line.splitlines()])
+            old_line = whitespace.join([f"- {line}" for line in old_line.splitlines()])
+
+            rel_path = try_relative(replacement_set[0]["FilePath"])
+            code_blocks += textwrap.dedent(
+                f"""\
+
+                {rel_path}:{replacement_line_num}:
+                ```diff
+                {old_line}
+                {new_line}
+                ```
+                """
+            )
+    return code_blocks, end_line
+
+
+def try_relative(path):
+    """Try making `path` relative to current directory, otherwise make it an absolute path"""
+    try:
+        here = pathlib.Path.cwd()
+        return pathlib.Path(path).relative_to(here)
+    except ValueError:
+        return pathlib.Path(path).resolve()
+
+
+def format_notes(notes, offset_lookup):
+    """Format an array of notes into a single string"""
+
+    code_blocks = ""
+
+    for note in notes:
+        filename = note["FilePath"]
+
+        if filename == "":
+            return note["Message"]
+
+        if filename not in offset_lookup:
+            # Let's make sure we've the file offsets for this other file
+            offset_lookup.update(make_file_offset_lookup([filename]))
+
+        line_num = find_line_number_from_offset(
+            offset_lookup[filename], note["FileOffset"]
+        )
+        line_offset = note["FileOffset"] - offset_lookup[filename][line_num]
+        source_line = read_one_line(filename, offset_lookup[filename][line_num])
+
+        path = try_relative(filename)
+        message = f"*{path}:{line_num}:* {note['Message']}"
+        code = format_ordinary_line(source_line, line_offset)
+        code_blocks += f"{message}\n{code}"
+
+    return code_blocks
+
+
+def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup, notes):
     """Create a comment from a diagnostic
 
     Comment contains the diagnostic message, plus its name, along with
@@ -198,7 +301,7 @@ def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup):
     diagnostic, or suggested fix(es).
 
     """
-    root = os.getcwd()
+
     filename = diagnostic["FilePath"]
     line_num = find_line_number_from_offset(
         offset_lookup[filename], diagnostic["FileOffset"]
@@ -214,64 +317,15 @@ def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup):
     """
     )
 
-    if diagnostic["Replacements"] == []:
-        # No fixit, so just point at the problem
-        code_blocks = textwrap.dedent(
-            f"""\
-            ```cpp
-            {textwrap.dedent(source_line).strip()}
-            {line_offset * " " + "^"}
-            ```
-            """
+    if diagnostic["Replacements"]:
+        code_blocks, end_line = format_diff_line(
+            diagnostic, offset_lookup, source_line, line_offset, line_num
         )
     else:
-        # We're going to be appending to this
-        code_blocks = ""
+        # No fixit, so just point at the problem
+        code_blocks = format_ordinary_line(source_line, line_offset)
 
-        replacement_sets = collate_replacement_sets(diagnostic, offset_lookup)
-
-        for replacement_line_num, replacement_set in replacement_sets.items():
-            old_line, new_line = replace_one_line(
-                replacement_set, replacement_line_num, offset_lookup
-            )
-
-            print(f"----------\n{old_line=}\n{new_line=}\n----------")
-
-            # If the replacement is for the same line as the
-            # diagnostic (which is where the comment will be), then
-            # format the replacement as a suggestion. Otherwise,
-            # format it as a diff
-            if replacement_line_num == line_num:
-                code_blocks += f"""
-```suggestion
-{new_line}
-```
-"""
-                end_line = replacement_set[-1]["EndLineNumber"]
-            else:
-                # Prepend each line in the replacement line with "+ "
-                # in order to make a nice diff block. The extra
-                # whitespace is so the multiline dedent-ed block below
-                # doesn't come out weird.
-                whitespace = "\n                    "
-                new_line = whitespace.join(
-                    [f"+ {line}" for line in new_line.splitlines()]
-                )
-                old_line = whitespace.join(
-                    [f"- {line}" for line in old_line.splitlines()]
-                )
-
-                rel_path = os.path.relpath(replacement_set[0]["FilePath"], root)
-                code_blocks += textwrap.dedent(
-                    f"""\
-
-                    {rel_path}:{replacement_line_num}:
-                    ```diff
-                    {old_line}
-                    {new_line}
-                    ```
-                    """
-                )
+    code_blocks += format_notes(notes, offset_lookup)
 
     comment_body = (
         f"warning: {diagnostic['Message']} [{diagnostic_name}]\n{code_blocks}"
@@ -281,8 +335,8 @@ def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup):
 
 
 def make_review(diagnostics, diff_lookup, offset_lookup):
+    """Create a Github review from a set of clang-tidy diagnostics"""
 
-    root = os.getcwd()
     comments = []
 
     for diagnostic in diagnostics:
@@ -296,10 +350,13 @@ def make_review(diagnostics, diff_lookup, offset_lookup):
             continue
 
         comment_body, end_line = make_comment_from_diagnostic(
-            diagnostic["DiagnosticName"], diagnostic_message, offset_lookup
+            diagnostic["DiagnosticName"],
+            diagnostic_message,
+            offset_lookup,
+            notes=diagnostic.get("Notes", []),
         )
 
-        rel_path = os.path.relpath(diagnostic_message["FilePath"], root)
+        rel_path = try_relative(diagnostic_message["FilePath"])
         # diff lines are 1-indexed
         source_line = 1 + find_line_number_from_offset(
             offset_lookup[diagnostic_message["FilePath"]],
