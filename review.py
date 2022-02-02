@@ -253,8 +253,12 @@ def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup):
                 # in order to make a nice diff block. The extra
                 # whitespace is so the multiline dedent-ed block below
                 # doesn't come out weird.
-                new_line = "\n                    ".join(
+                whitespace = "\n                    "
+                new_line = whitespace.join(
                     [f"+ {line}" for line in new_line.splitlines()]
+                )
+                old_line = whitespace.join(
+                    [f"- {line}" for line in old_line.splitlines()]
                 )
 
                 rel_path = os.path.relpath(replacement_set[0]["FilePath"], root)
@@ -263,7 +267,7 @@ def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup):
 
                     {rel_path}:{replacement_line_num}:
                     ```diff
-                    - {old_line}
+                    {old_line}
                     {new_line}
                     ```
                     """
