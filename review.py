@@ -597,7 +597,11 @@ def main(
 
     diff_lookup = make_file_line_lookup(diff)
     offset_lookup = make_file_offset_lookup(files)
-    review = make_review(clang_tidy_warnings["Diagnostics"], diff_lookup, offset_lookup)
+
+    with message_group("Creating review from warnings"):
+        review = make_review(
+            clang_tidy_warnings["Diagnostics"], diff_lookup, offset_lookup
+        )
 
     print("Created the following review:\n", pprint.pformat(review), flush=True)
 
