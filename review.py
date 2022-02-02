@@ -6,6 +6,7 @@
 # See LICENSE for more information
 
 import argparse
+import contextlib
 import datetime
 import itertools
 import fnmatch
@@ -22,6 +23,15 @@ from github import Github
 
 BAD_CHARS_APT_PACKAGES_PATTERN = "[;&|($]"
 DIFF_HEADER_LINE_LENGTH = 5
+
+
+@contextlib.contextmanager
+def message_group(title: str):
+    print(f"::group::{title}", flush=True)
+    try:
+        yield
+    finally:
+        print("::endgroup::", flush=True)
 
 
 def make_file_line_lookup(diff):
@@ -157,13 +167,13 @@ def get_clang_tidy_warnings(
     print(f"Using config: {config}")
 
     command = f"{clang_tidy_binary} -p={build_dir} {config} -line-filter={line_filter} {files}"
-    print(f"Running:\n\t{command}")
 
     start = datetime.datetime.now()
     try:
-        output = subprocess.run(
-            command, capture_output=True, shell=True, check=True, encoding="utf-8"
-        )
+        with message_group(f"Running:\n\t{command}"):
+            output = subprocess.run(
+                command, capture_output=True, shell=True, check=True, encoding="utf-8"
+            )
     except subprocess.CalledProcessError as e:
         print(
             f"\n\nclang-tidy failed with return code {e.returncode} and error:\n{e.stderr}\nOutput was:\n{e.stdout}"
@@ -301,6 +311,18 @@ def main(
     pull_request.create_review(**trimmed_review)
 
 
+def strip_enclosing_quotes(string: str) -> str:
+    """Strip leading/trailing whitespace and remove any enclosing quotes"""
+    stripped = string.strip()
+
+    # Need to check double quotes again in case they're nested inside
+    # single quotes
+    for quote in ['"', "'", '"']:
+        if stripped.startswith(quote) and stripped.endswith(quote):
+            stripped = stripped[1:-1]
+    return stripped
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Create a review from clang-tidy warnings"
@@ -343,6 +365,12 @@ if __name__ == "__main__":
         default="",
     )
     parser.add_argument(
+        "--cmake-command",
+        help="If set, run CMake as part of the action with this command",
+        type=str,
+        default="",
+    )
+    parser.add_argument(
         "--max-comments",
         help="Maximum number of comments to post at once",
         type=int,
@@ -356,22 +384,29 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Remove any enclosing quotes and extra whitespace
-    exclude = args.exclude.strip(""" "'""").split(",")
-    include = args.include.strip(""" "'""").split(",")
+    exclude = strip_enclosing_quotes(args.exclude).split(",")
+    include = strip_enclosing_quotes(args.include).split(",")
 
     if args.apt_packages:
         # Try to make sure only 'apt install' is run
         apt_packages = re.split(BAD_CHARS_APT_PACKAGES_PATTERN, args.apt_packages)[
             0
         ].split(",")
-        print("Installing additional packages:", apt_packages)
-        subprocess.run(
-            ["apt", "install", "-y", "--no-install-recommends"] + apt_packages
-        )
+        with message_group(f"Installing additional packages: {apt_packages}"):
+            subprocess.run(
+                ["apt", "install", "-y", "--no-install-recommends"] + apt_packages
+            )
 
     build_compile_commands = f"{args.build_dir}/compile_commands.json"
 
-    if os.path.exists(build_compile_commands):
+    # If we run CMake as part of the action, then we know the paths in
+    # the compile_commands.json file are going to be correct
+    if args.cmake_command:
+        cmake_command = strip_enclosing_quotes(args.cmake_command)
+        with message_group(f"Running cmake: {cmake_command}"):
+            subprocess.run(cmake_command, shell=True, check=True)
+
+    elif os.path.exists(build_compile_commands):
         print(f"Found '{build_compile_commands}', updating absolute paths")
         # We might need to change some absolute paths if we're inside
         # a docker container
@@ -381,7 +416,7 @@ if __name__ == "__main__":
         original_directory = compile_commands[0]["directory"]
 
         # directory should either end with the build directory,
-        # unless it's '.', in which case use all of directory
+        # unless it's '.', in which case use original directory
         if original_directory.endswith(args.build_dir):
             build_dir_index = -(len(args.build_dir) + 1)
             basedir = original_directory[:build_dir_index]

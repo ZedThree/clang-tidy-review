@@ -5,6 +5,7 @@ COPY requirements.txt /requirements.txt
 RUN apt update && \
     DEBIAN_FRONTEND=noninteractive \
     apt-get install -y --no-install-recommends\
+    build-essential cmake git \
     tzdata \
     clang-tidy-6.0 \
     clang-tidy-7 \
@@ -18,6 +19,5 @@ RUN apt update && \
     pip3 install -r requirements.txt
 
 COPY review.py /review.py
-COPY entrypoint.sh /entrypoint.sh
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/review.py"]
