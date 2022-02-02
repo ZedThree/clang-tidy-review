@@ -72,6 +72,9 @@ at once, so `clang-tidy-review` will only attempt to post the first
   should be relative to `GITHUB_WORKSPACE` (the default place where your
   repository is cloned)
   - default: `'.'`
+- `base_dir`: Absolute path to initial working directory. Almost always
+  `GITHUB_WORKSPACE`.
+  - default: `GITHUB_WORKSPACE`
 - `clang_tidy_version`: Version of clang-tidy to use; one of 6.0, 7, 8, 9, 10, 11
   - default: '11'
 - `clang_tidy_checks`: List of checks
