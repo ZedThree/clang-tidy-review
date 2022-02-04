@@ -82,7 +82,7 @@ def make_review(contents, lookup):
             try:
                 comments.append(
                     {
-                        "path": rel_path,
+                        "path": str(rel_path),
                         "body": comment_body,
                         "position": lookup[rel_path][int(source_line)],
                     }
