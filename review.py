@@ -432,10 +432,11 @@ if __name__ == "__main__":
 
     build_compile_commands = f"{args.build_dir}/compile_commands.json"
 
+    cmake_command = strip_enclosing_quotes(args.cmake_command)
+
     # If we run CMake as part of the action, then we know the paths in
     # the compile_commands.json file are going to be correct
-    if args.cmake_command:
-        cmake_command = strip_enclosing_quotes(args.cmake_command)
+    if cmake_command:
         with message_group(f"Running cmake: {cmake_command}"):
             subprocess.run(cmake_command, shell=True, check=True)
 
