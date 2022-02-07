@@ -6,6 +6,9 @@ Inspired by `clang-tidy-diff`, Clang-Tidy Review only runs on the
 changes in the pull request. This makes it nice and speedy, as well as
 being useful for projects that aren't completely clang-tidy clean yet.
 
+Where possible, makes the warnings into suggestions so you can apply
+them immediately.
+
 Returns the number of comments, so you can decide whether the warnings
 act as suggestions, or check failure.
 
