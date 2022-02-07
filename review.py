@@ -356,34 +356,34 @@ def make_review(diagnostics, diff_lookup, offset_lookup):
             notes=diagnostic.get("Notes", []),
         )
 
-        rel_path = try_relative(diagnostic_message["FilePath"])
+        rel_path = str(try_relative(diagnostic_message["FilePath"]))
         # diff lines are 1-indexed
         source_line = 1 + find_line_number_from_offset(
             offset_lookup[diagnostic_message["FilePath"]],
             diagnostic_message["FileOffset"],
         )
 
-        try:
-            comments.append(
-                {
-                    "path": str(rel_path),
-                    "body": comment_body,
-                    "side": "RIGHT",
-                    "line": end_line,
-                    # "position": diff_lookup[rel_path][source_line],
-                }
-            )
-            # If this is a multiline comment, we need a couple more bits:
-            if end_line != source_line:
-                comments[-1].update(
-                    {
-                        "start_side": "RIGHT",
-                        "start_line": source_line,
-                    }
-                )
-        except KeyError:
+        if rel_path not in diff_lookup or end_line not in diff_lookup[rel_path]:
             print(
                 f"WARNING: Skipping comment for file '{rel_path}' not in PR changeset. Comment body is:\n{comment_body}"
+            )
+            continue
+
+        comments.append(
+            {
+                "path": rel_path,
+                "body": comment_body,
+                "side": "RIGHT",
+                "line": end_line,
+            }
+        )
+        # If this is a multiline comment, we need a couple more bits:
+        if end_line != source_line:
+            comments[-1].update(
+                {
+                    "start_side": "RIGHT",
+                    "start_line": source_line,
+                }
             )
 
     review = {
