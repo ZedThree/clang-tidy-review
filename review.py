@@ -13,6 +13,7 @@ import fnmatch
 import json
 import os
 from operator import itemgetter
+import pathlib
 import pprint
 import re
 import requests
@@ -81,7 +82,7 @@ def make_review(contents, lookup):
             try:
                 comments.append(
                     {
-                        "path": rel_path,
+                        "path": str(rel_path),
                         "body": comment_body,
                         "position": lookup[rel_path][int(source_line)],
                     }
@@ -323,6 +324,33 @@ def strip_enclosing_quotes(string: str) -> str:
     return stripped
 
 
+def fix_absolute_paths(build_compile_commands, base_dir):
+    """Update absolute paths in compile_commands.json to new location, if
+    compile_commands.json was created outside the Actions container
+    """
+
+    basedir = pathlib.Path(base_dir).resolve()
+    newbasedir = pathlib.Path(".").resolve()
+
+    if basedir == newbasedir:
+        return
+
+    print(f"Found '{build_compile_commands}', updating absolute paths")
+    # We might need to change some absolute paths if we're inside
+    # a docker container
+    with open(build_compile_commands, "r") as f:
+        compile_commands = json.load(f)
+
+    print(f"Replacing '{basedir}' with '{newbasedir}'", flush=True)
+
+    modified_compile_commands = json.dumps(compile_commands).replace(
+        str(basedir), str(newbasedir)
+    )
+
+    with open(build_compile_commands, "w") as f:
+        f.write(modified_compile_commands)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Create a review from clang-tidy warnings"
@@ -334,6 +362,11 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--build_dir", help="Directory with compile_commands.json", default="."
+    )
+    parser.add_argument(
+        "--base_dir",
+        help="Absolute path of initial working directory if compile_commands.json generated outside of Action",
+        default=".",
     )
     parser.add_argument(
         "--clang_tidy_checks",
@@ -399,44 +432,16 @@ if __name__ == "__main__":
 
     build_compile_commands = f"{args.build_dir}/compile_commands.json"
 
+    cmake_command = strip_enclosing_quotes(args.cmake_command)
+
     # If we run CMake as part of the action, then we know the paths in
     # the compile_commands.json file are going to be correct
-    if args.cmake_command:
-        cmake_command = strip_enclosing_quotes(args.cmake_command)
+    if cmake_command:
         with message_group(f"Running cmake: {cmake_command}"):
             subprocess.run(cmake_command, shell=True, check=True)
 
     elif os.path.exists(build_compile_commands):
-        print(f"Found '{build_compile_commands}', updating absolute paths")
-        # We might need to change some absolute paths if we're inside
-        # a docker container
-        with open(build_compile_commands, "r") as f:
-            compile_commands = json.load(f)
-
-        original_directory = compile_commands[0]["directory"]
-
-        # directory should either end with the build directory,
-        # unless it's '.', in which case use original directory
-        if original_directory.endswith(args.build_dir):
-            build_dir_index = -(len(args.build_dir) + 1)
-            basedir = original_directory[:build_dir_index]
-        elif args.build_dir == ".":
-            basedir = original_directory
-        else:
-            raise RuntimeError(
-                f"compile_commands.json contains absolute paths that I don't know how to deal with: '{original_directory}'"
-            )
-
-        newbasedir = os.getcwd()
-
-        print(f"Replacing '{basedir}' with '{newbasedir}'", flush=True)
-
-        modified_compile_commands = json.dumps(compile_commands).replace(
-            basedir, newbasedir
-        )
-
-        with open(build_compile_commands, "w") as f:
-            f.write(modified_compile_commands)
+        fix_absolute_paths(build_compile_commands, args.base_dir)
 
     main(
         repo=args.repo,
