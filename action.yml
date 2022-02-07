@@ -13,6 +13,10 @@ inputs:
     description: 'Directory containing the compile_commands.json file'
     default: '.'
     required: false
+  base_dir:
+    description: 'Absolute path to initial working directory. Useful if generating `compile_commands.json` outside of the Action'
+    default: ${{ github.workspace }}
+    require: false
   clang_tidy_version:
     description: 'Version of clang-tidy to use; one of 6.0, 7, 8, 9, 10, 11, 12'
     default: '12'
@@ -61,6 +65,7 @@ runs:
     - --repo=${{ inputs.repo }}
     - --pr=${{ inputs.pr }}
     - --build_dir=${{ inputs.build_dir }}
+    - --base_dir=${{ inputs.base_dir }}
     - --clang_tidy_checks=${{ inputs.clang_tidy_checks }}
     - --config_file=${{ inputs.config_file }}
     - --include='${{ inputs.include }}'

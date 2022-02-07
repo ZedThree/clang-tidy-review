@@ -72,6 +72,9 @@ at once, so `clang-tidy-review` will only attempt to post the first
   should be relative to `GITHUB_WORKSPACE` (the default place where your
   repository is cloned)
   - default: `'.'`
+- `base_dir`: Absolute path to initial working directory
+  `GITHUB_WORKSPACE`.
+  - default: `GITHUB_WORKSPACE`
 - `clang_tidy_version`: Version of clang-tidy to use; one of 6.0, 7, 8, 9, 10, 11
   - default: '11'
 - `clang_tidy_checks`: List of checks
@@ -86,7 +89,8 @@ at once, so `clang-tidy-review` will only attempt to post the first
 - `apt_packages`: Comma-separated list of apt packages to install
   - default: ''
 - `cmake_command`: A CMake command to configure your project and generate
-  `compile_commands.json` in `build_dir`
+  `compile_commands.json` in `build_dir`. You _almost certainly_ want
+  to include `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`!
   - default: ''
 - `max_comments`: Maximum number of comments to post at once
   - default: '25'
@@ -95,8 +99,97 @@ at once, so `clang-tidy-review` will only attempt to post the first
 
 - `total_comments`: Total number of warnings from clang-tidy
 
+## Generating `compile_commands.json` inside the container
+
+Very simple projects can get away without a `compile_commands.json`
+file, but for most projects `clang-tidy` needs this file in order to
+find include paths and macro definitions.
+
+If you use the GitHub `ubuntu-latest` image as your normal `runs-on`
+container, you only install packages from the system package manager,
+and don't need to build or install other tools yourself, then you can
+generate `compile_commands.json` as part of the `clang-tidy-review`
+action:
+
+```yaml
+name: clang-tidy-review
+on: [pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - uses: ZedThree/clang-tidy-review@v0.8.0
+      id: review
+      with:
+        # List of packages to install
+        apt_packages: liblapack-dev
+        # CMake command to run in order to generate compile_commands.json
+        cmake_command: cmake . -DCMAKE_EXPORT_COMPILE_COMMANDS=on
+```
+
+If you don't use CMake, this may still work for you if you can use a
+tool like [bear](https://github.com/rizsotto/Bear) for example.
+
+## Use in a non-default location
+
+If you're using the `container` argument in your GitHub workflow,
+downloading/building other tools manually, or not using CMake, you
+will need to generate `compile_commands.json` before the
+`clang-tidy-review` action. However, the Action is run inside another
+container, and due to the way GitHub Actions work, `clang-tidy-review`
+ends up running with a different absolute path.
+
+What this means is that if `compile_commands.json` contains absolute
+paths, `clang-tidy-review` needs to adjust them to where it is being
+run instead. By default, it replaces absolute paths that start with
+the value of [`${GITHUB_WORKSPACE}`][env_vars] with the new working
+directory.
+
+If you're running in a container other than a default GitHub
+container, then you may need to pass the working directory to
+`base_dir`. Unfortunately there's not an easy way for
+`clang-tidy-review` to auto-detect this, so in order to pass the
+current directory you will need to do something like the following:
+
+```yaml
+name: clang-tidy-review
+on: [pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Using another container changes the
+    # working directory from GITHUB_WORKSPACE
+    container:
+      image: my-container
+
+    steps:
+    - uses: actions/checkout@v2
+
+    # Get the current working directory and set it
+    # as an environment variable
+    - name: Set base_dir
+      run: echo "base_dir=$(pwd)" >> $GITHUB_ENV
+
+    - uses: ZedThree/clang-tidy-review@v0.8.0
+      id: review
+      with:
+        # Tell clang-tidy-review the base directory.
+        # This will get replaced by the new working
+        # directory inside the action
+        base_dir: ${{ env.base_dir }}
+```
+
 ## Real world project samples
 |Project|Workflow|
 |----------|-------|
 |[BOUT++](https://github.com/boutproject/BOUT-dev) |[CMake](https://github.com/boutproject/BOUT-dev/blob/master/.github/workflows/clang-tidy-review.yml) |
 |[Mudlet](https://github.com/Mudlet/Mudlet) |[CMake + Qt](https://github.com/Mudlet/Mudlet/blob/development/.github/workflows/clangtidy-diff-analysis.yml) |
+
+
+
+[env_vars]: https://docs.github.com/en/actions/learn-github-actions/environment-variables#default-environment-variables
