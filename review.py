@@ -286,7 +286,7 @@ def format_notes(notes, offset_lookup):
         source_line = read_one_line(filename, offset_lookup[filename][line_num])
 
         path = try_relative(filename)
-        message = f"*{path}:{line_num}:* {note['Message']}"
+        message = f"**{path}:{line_num}:** {note['Message']}"
         code = format_ordinary_line(source_line, line_offset)
         code_blocks += f"{message}\n{code}"
 
