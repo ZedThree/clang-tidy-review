@@ -478,12 +478,11 @@ def get_clang_tidy_warnings(
 
     print(f"Took: {end - start}")
 
-    print(f"Took: {end - start}")
-
-    with open(FIXES_FILE, "r") as fixes_file:
-        fixes = yaml.safe_load(fixes_file)
-
-    return fixes
+    try:
+        with open(FIXES_FILE, "r") as fixes_file:
+            return yaml.safe_load(fixes_file)
+    except FileNotFoundError:
+        return {}
 
 
 def post_lgtm_comment(pull_request):
@@ -595,6 +594,16 @@ def main(
     )
     print("clang-tidy had the following warnings:\n", clang_tidy_warnings, flush=True)
 
+    github = Github(token)
+    repo_object = github.get_repo(f"{repo}")
+    pull_request = repo_object.get_pull(pr_number)
+
+    if clang_tidy_warnings == {}:
+        print("No warnings, LGTM!")
+        if not dry_run:
+            post_lgtm_comment(pull_request)
+        return
+
     diff_lookup = make_file_line_lookup(diff)
     offset_lookup = make_file_offset_lookup(files)
 
@@ -604,11 +613,6 @@ def main(
         )
 
     print("Created the following review:\n", pprint.pformat(review), flush=True)
-
-    github = Github(token)
-    repo_object = github.get_repo(f"{repo}")
-    pull_request = repo_object.get_pull(pr_number)
-
     if dry_run:
         pprint.pprint(review)
         return
