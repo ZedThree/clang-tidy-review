@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.8.1](https://github.com/ZedThree/clang-tidy-review/tree/v0.8.1) (2022-02-09)
+
+[Full Changelog](https://github.com/ZedThree/clang-tidy-review/compare/v0.8.0...v0.8.1)
+
+**Merged pull requests:**
+
+- Fix for clang-tidy not making any comments [\#28](https://github.com/ZedThree/clang-tidy-review/pull/28) ([ZedThree](https://github.com/ZedThree))
+
 ## [v0.8.0](https://github.com/ZedThree/clang-tidy-review/tree/v0.8.0) (2022-02-07)
 
 [Full Changelog](https://github.com/ZedThree/clang-tidy-review/compare/v0.7.1...v0.8.0)
