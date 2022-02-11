@@ -22,6 +22,8 @@ import textwrap
 import unidiff
 import yaml
 from github import Github
+from github.Requester import Requester
+from github.PaginatedList import PaginatedList
 from typing import List
 
 BAD_CHARS_APT_PACKAGES_PATTERN = "[;&|($]"
@@ -30,6 +32,8 @@ FIXES_FILE = "clang_tidy_review.yaml"
 
 
 class PullRequest:
+    """Add some convenience functions not in PyGithub"""
+
     def __init__(self, repo: str, pr_number: int, token: str):
         self.repo = repo
         self.pr_number = pr_number
@@ -72,8 +76,17 @@ class PullRequest:
     def get_pr_comments(self):
         """Download the PR review comments using the comfort-fade preview headers"""
 
-        pr_comments = self.get("comfort-fade-preview+json", "/comments")
-        return json.loads(pr_comments)
+        def get_element(
+            requester: Requester, headers: dict, element: dict, completed: bool
+        ):
+            return element
+
+        return PaginatedList(
+            get_element,
+            self._pull_request._requester,
+            f"{self.base_url}/comments",
+            None,
+        )
 
     def post_lgtm_comment(self):
         """Post a "LGTM" comment if everything's clean, making sure not to spam"""
