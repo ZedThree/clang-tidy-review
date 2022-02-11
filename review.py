@@ -291,7 +291,7 @@ def format_ordinary_line(source_line, line_offset):
     return textwrap.dedent(
         f"""\
          ```cpp
-         {textwrap.dedent(source_line).strip()}
+         {source_line}
          {line_offset * " " + "^"}
          ```
          """
