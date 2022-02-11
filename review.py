@@ -79,14 +79,20 @@ def make_file_offset_lookup(filenames):
     return lookup
 
 
-def find_line_number_from_offset(offset_lookup, offset):
+def find_line_number_from_offset(offset_lookup, filename, offset):
     """Work out which line number `offset` corresponds to using `offset_lookup`.
 
     The line number (0-indexed) is the index of the first line offset
     which is larger than `offset`.
 
     """
-    for line_num, line_offset in enumerate(offset_lookup):
+    name = str(pathlib.Path(filename).resolve().absolute())
+
+    if name not in offset_lookup:
+        # Let's make sure we've the file offsets for this other file
+        offset_lookup.update(make_file_offset_lookup([name]))
+
+    for line_num, line_offset in enumerate(offset_lookup[name]):
         if line_offset > offset:
             return line_num - 1
     return -1
@@ -121,10 +127,11 @@ def collate_replacement_sets(diagnostic, offset_lookup):
             offset_lookup.update(make_file_offset_lookup([replacement["FilePath"]]))
 
         replacement["LineNumber"] = find_line_number_from_offset(
-            offset_lookup[replacement["FilePath"]], replacement["Offset"]
+            offset_lookup, replacement["FilePath"], replacement["Offset"]
         )
         replacement["EndLineNumber"] = find_line_number_from_offset(
-            offset_lookup[replacement["FilePath"]],
+            offset_lookup,
+            replacement["FilePath"],
             replacement["Offset"] + replacement["Length"],
         )
 
@@ -275,17 +282,17 @@ def format_notes(notes, offset_lookup):
         if filename == "":
             return note["Message"]
 
-        if filename not in offset_lookup:
-            # Let's make sure we've the file offsets for this other file
-            offset_lookup.update(make_file_offset_lookup([filename]))
+        resolved_path = str(pathlib.Path(filename).resolve().absolute())
 
         line_num = find_line_number_from_offset(
-            offset_lookup[filename], note["FileOffset"]
+            offset_lookup, resolved_path, note["FileOffset"]
         )
-        line_offset = note["FileOffset"] - offset_lookup[filename][line_num]
-        source_line = read_one_line(filename, offset_lookup[filename][line_num])
+        line_offset = note["FileOffset"] - offset_lookup[resolved_path][line_num]
+        source_line = read_one_line(
+            resolved_path, offset_lookup[resolved_path][line_num]
+        )
 
-        path = try_relative(filename)
+        path = try_relative(resolved_path)
         message = f"**{path}:{line_num}:** {note['Message']}"
         code = format_ordinary_line(source_line, line_offset)
         code_blocks += f"{message}\n{code}"
@@ -304,7 +311,7 @@ def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup, not
 
     filename = diagnostic["FilePath"]
     line_num = find_line_number_from_offset(
-        offset_lookup[filename], diagnostic["FileOffset"]
+        offset_lookup, filename, diagnostic["FileOffset"]
     )
     line_offset = diagnostic["FileOffset"] - offset_lookup[filename][line_num]
 
@@ -359,7 +366,8 @@ def make_review(diagnostics, diff_lookup, offset_lookup):
         rel_path = str(try_relative(diagnostic_message["FilePath"]))
         # diff lines are 1-indexed
         source_line = 1 + find_line_number_from_offset(
-            offset_lookup[diagnostic_message["FilePath"]],
+            offset_lookup,
+            diagnostic_message["FilePath"],
             diagnostic_message["FileOffset"],
         )
 
