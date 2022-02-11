@@ -22,10 +22,97 @@ import textwrap
 import unidiff
 import yaml
 from github import Github
+from github.Requester import Requester
+from github.PaginatedList import PaginatedList
+from typing import List
 
 BAD_CHARS_APT_PACKAGES_PATTERN = "[;&|($]"
 DIFF_HEADER_LINE_LENGTH = 5
 FIXES_FILE = "clang_tidy_review.yaml"
+
+
+class PullRequest:
+    """Add some convenience functions not in PyGithub"""
+
+    def __init__(self, repo: str, pr_number: int, token: str):
+        self.repo = repo
+        self.pr_number = pr_number
+        self.token = token
+
+        github = Github(token)
+        repo_object = github.get_repo(f"{repo}")
+        self._pull_request = repo_object.get_pull(pr_number)
+
+    def headers(self, media_type: str):
+        return {
+            "Accept": f"application/vnd.github.{media_type}",
+            "Authorization": f"token {self.token}",
+        }
+
+    @property
+    def base_url(self):
+        return f"https://api.github.com/repos/{self.repo}/pulls/{self.pr_number}"
+
+    def get(self, media_type: str, extra: str = "") -> str:
+        url = f"{self.base_url}{extra}"
+        response = requests.get(url, headers=self.headers(media_type))
+        response.raise_for_status()
+        return response.text
+
+    def get_pr_diff(self) -> List[unidiff.PatchSet]:
+        """Download the PR diff, return a list of PatchedFile"""
+
+        diffs = self.get("v3.diff")
+
+        # PatchSet is the easiest way to construct what we want, but the
+        # diff_line_no property on lines is counted from the top of the
+        # whole PatchSet, whereas GitHub is expecting the "position"
+        # property to be line count within each file's diff. So we need to
+        # do this little bit of faff to get a list of file-diffs with
+        # their own diff_line_no range
+        diff = [unidiff.PatchSet(str(file))[0] for file in unidiff.PatchSet(diffs)]
+        return diff
+
+    def get_pr_comments(self):
+        """Download the PR review comments using the comfort-fade preview headers"""
+
+        def get_element(
+            requester: Requester, headers: dict, element: dict, completed: bool
+        ):
+            return element
+
+        return PaginatedList(
+            get_element,
+            self._pull_request._requester,
+            f"{self.base_url}/comments",
+            None,
+        )
+
+    def post_lgtm_comment(self):
+        """Post a "LGTM" comment if everything's clean, making sure not to spam"""
+
+        BODY = 'clang-tidy review says "All clean, LGTM! :+1:"'
+
+        comments = self.get_pr_comments()
+
+        for comment in comments:
+            if comment["body"] == BODY:
+                print("Already posted, no need to update")
+                return
+
+        self._pull_request.create_issue_comment(BODY)
+
+    def post_review(self, review):
+        """Submit a completed review"""
+        headers = {
+            "Accept": "application/vnd.github.comfort-fade-preview+json",
+            "Authorization": f"token {self.token}",
+        }
+        url = f"{self.base_url}/reviews"
+
+        post_review_response = requests.post(url, json=review, headers=headers)
+        print(post_review_response.text)
+        post_review_response.raise_for_status()
 
 
 @contextlib.contextmanager
@@ -79,14 +166,20 @@ def make_file_offset_lookup(filenames):
     return lookup
 
 
-def find_line_number_from_offset(offset_lookup, offset):
+def find_line_number_from_offset(offset_lookup, filename, offset):
     """Work out which line number `offset` corresponds to using `offset_lookup`.
 
     The line number (0-indexed) is the index of the first line offset
     which is larger than `offset`.
 
     """
-    for line_num, line_offset in enumerate(offset_lookup):
+    name = str(pathlib.Path(filename).resolve().absolute())
+
+    if name not in offset_lookup:
+        # Let's make sure we've the file offsets for this other file
+        offset_lookup.update(make_file_offset_lookup([name]))
+
+    for line_num, line_offset in enumerate(offset_lookup[name]):
         if line_offset > offset:
             return line_num - 1
     return -1
@@ -121,10 +214,11 @@ def collate_replacement_sets(diagnostic, offset_lookup):
             offset_lookup.update(make_file_offset_lookup([replacement["FilePath"]]))
 
         replacement["LineNumber"] = find_line_number_from_offset(
-            offset_lookup[replacement["FilePath"]], replacement["Offset"]
+            offset_lookup, replacement["FilePath"], replacement["Offset"]
         )
         replacement["EndLineNumber"] = find_line_number_from_offset(
-            offset_lookup[replacement["FilePath"]],
+            offset_lookup,
+            replacement["FilePath"],
             replacement["Offset"] + replacement["Length"],
         )
 
@@ -197,7 +291,7 @@ def format_ordinary_line(source_line, line_offset):
     return textwrap.dedent(
         f"""\
          ```cpp
-         {textwrap.dedent(source_line).strip()}
+         {source_line}
          {line_offset * " " + "^"}
          ```
          """
@@ -275,17 +369,17 @@ def format_notes(notes, offset_lookup):
         if filename == "":
             return note["Message"]
 
-        if filename not in offset_lookup:
-            # Let's make sure we've the file offsets for this other file
-            offset_lookup.update(make_file_offset_lookup([filename]))
+        resolved_path = str(pathlib.Path(filename).resolve().absolute())
 
         line_num = find_line_number_from_offset(
-            offset_lookup[filename], note["FileOffset"]
+            offset_lookup, resolved_path, note["FileOffset"]
         )
-        line_offset = note["FileOffset"] - offset_lookup[filename][line_num]
-        source_line = read_one_line(filename, offset_lookup[filename][line_num])
+        line_offset = note["FileOffset"] - offset_lookup[resolved_path][line_num]
+        source_line = read_one_line(
+            resolved_path, offset_lookup[resolved_path][line_num]
+        )
 
-        path = try_relative(filename)
+        path = try_relative(resolved_path)
         message = f"**{path}:{line_num}:** {note['Message']}"
         code = format_ordinary_line(source_line, line_offset)
         code_blocks += f"{message}\n{code}"
@@ -304,7 +398,7 @@ def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup, not
 
     filename = diagnostic["FilePath"]
     line_num = find_line_number_from_offset(
-        offset_lookup[filename], diagnostic["FileOffset"]
+        offset_lookup, filename, diagnostic["FileOffset"]
     )
     line_offset = diagnostic["FileOffset"] - offset_lookup[filename][line_num]
 
@@ -359,7 +453,8 @@ def make_review(diagnostics, diff_lookup, offset_lookup):
         rel_path = str(try_relative(diagnostic_message["FilePath"]))
         # diff lines are 1-indexed
         source_line = 1 + find_line_number_from_offset(
-            offset_lookup[diagnostic_message["FilePath"]],
+            offset_lookup,
+            diagnostic_message["FilePath"],
             diagnostic_message["FileOffset"],
         )
 
@@ -392,31 +487,6 @@ def make_review(diagnostics, diff_lookup, offset_lookup):
         "comments": comments,
     }
     return review
-
-
-def get_pr_diff(repo, pr_number, token):
-    """Download the PR diff, return a list of PatchedFile"""
-
-    headers = {
-        "Accept": "application/vnd.github.v3.diff",
-        "Authorization": f"token {token}",
-    }
-    url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
-
-    pr_diff_response = requests.get(url, headers=headers)
-    pr_diff_response.raise_for_status()
-
-    # PatchSet is the easiest way to construct what we want, but the
-    # diff_line_no property on lines is counted from the top of the
-    # whole PatchSet, whereas GitHub is expecting the "position"
-    # property to be line count within each file's diff. So we need to
-    # do this little bit of faff to get a list of file-diffs with
-    # their own diff_line_no range
-    diff = [
-        unidiff.PatchSet(str(file))[0]
-        for file in unidiff.PatchSet(pr_diff_response.text)
-    ]
-    return diff
 
 
 def get_line_ranges(diff, files):
@@ -485,36 +555,21 @@ def get_clang_tidy_warnings(
         return {}
 
 
-def post_lgtm_comment(pull_request):
-    """Post a "LGTM" comment if everything's clean, making sure not to spam"""
-
-    BODY = 'clang-tidy review says "All clean, LGTM! :+1:"'
-
-    comments = pull_request.get_issue_comments()
-
-    for comment in comments:
-        if comment.body == BODY:
-            print("Already posted, no need to update")
-            return
-
-    pull_request.create_issue_comment(BODY)
-
-
-def cull_comments(pull_request, review, max_comments):
+def cull_comments(pull_request: PullRequest, review, max_comments):
     """Remove comments from review that have already been posted, and keep
     only the first max_comments
 
     """
 
-    comments = pull_request.get_review_comments()
+    comments = pull_request.get_pr_comments()
 
     for comment in comments:
         review["comments"] = list(
             filter(
                 lambda review_comment: not (
-                    review_comment["path"] == comment.path
-                    and review_comment["position"] == comment.position
-                    and review_comment["body"] == comment.body
+                    review_comment["path"] == comment["path"]
+                    and review_comment["line"] == comment["line"]
+                    and review_comment["body"] == comment["body"]
                 ),
                 review["comments"],
             )
@@ -531,20 +586,6 @@ def cull_comments(pull_request, review, max_comments):
     return review
 
 
-def post_review(review, repo, pr_number, token):
-    # pull_request.create_review(**review)
-
-    headers = {
-        "Accept": "application/vnd.github.comfort-fade-preview+json",
-        "Authorization": f"token {token}",
-    }
-    url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews"
-
-    post_review_response = requests.post(url, json=review, headers=headers)
-    print(post_review_response.text)
-    post_review_response.raise_for_status()
-
-
 def main(
     repo,
     pr_number,
@@ -559,7 +600,8 @@ def main(
     dry_run: bool = False,
 ):
 
-    diff = get_pr_diff(repo, pr_number, token)
+    pull_request = PullRequest(repo, pr_number, token)
+    diff = pull_request.get_pr_diff()
     print(f"\nDiff from GitHub PR:\n{diff}\n")
 
     changed_files = [filename.target_file[2:] for filename in diff]
@@ -594,14 +636,10 @@ def main(
     )
     print("clang-tidy had the following warnings:\n", clang_tidy_warnings, flush=True)
 
-    github = Github(token)
-    repo_object = github.get_repo(f"{repo}")
-    pull_request = repo_object.get_pull(pr_number)
-
     if clang_tidy_warnings == {}:
         print("No warnings, LGTM!")
         if not dry_run:
-            post_lgtm_comment(pull_request)
+            pull_request.post_lgtm_comment()
         return
 
     diff_lookup = make_file_line_lookup(diff)
@@ -612,13 +650,14 @@ def main(
             clang_tidy_warnings["Diagnostics"], diff_lookup, offset_lookup
         )
 
-    print("Created the following review:\n", pprint.pformat(review), flush=True)
-    if dry_run:
-        pprint.pprint(review)
-        return
+    print(
+        "Created the following review:\n", pprint.pformat(review, width=130), flush=True
+    )
 
     if review["comments"] == []:
-        post_lgtm_comment(pull_request)
+        print("No warnings to report, LGTM!")
+        if not dry_run:
+            pull_request.post_lgtm_comment()
         return
 
     print("Removing already posted or extra comments", flush=True)
@@ -630,8 +669,12 @@ def main(
         print("Everything already posted!")
         return review
 
+    if dry_run:
+        pprint.pprint(review, width=130)
+        return
+
     print("Posting the review:\n", pprint.pformat(trimmed_review), flush=True)
-    post_review(trimmed_review, repo, pr_number, token)
+    pull_request.post_review(trimmed_review)
 
 
 def strip_enclosing_quotes(string: str) -> str:
