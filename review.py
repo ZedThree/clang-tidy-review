@@ -650,7 +650,9 @@ def main(
             clang_tidy_warnings["Diagnostics"], diff_lookup, offset_lookup
         )
 
-    print("Created the following review:\n", pprint.pformat(review), flush=True)
+    print(
+        "Created the following review:\n", pprint.pformat(review, width=130), flush=True
+    )
 
     if review["comments"] == []:
         print("No warnings to report, LGTM!")
@@ -668,7 +670,7 @@ def main(
         return review
 
     if dry_run:
-        pprint.pprint(review)
+        pprint.pprint(review, width=130)
         return
 
     print("Posting the review:\n", pprint.pformat(trimmed_review), flush=True)
