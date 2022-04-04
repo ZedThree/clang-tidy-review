@@ -82,8 +82,7 @@ at once, so `clang-tidy-review` will only attempt to post the first
   - default: '11'
 - `clang_tidy_checks`: List of checks
   - default: `'-*,performance-*,readability-*,bugprone-*,clang-analyzer-*,cppcoreguidelines-*,mpi-*,misc-*'`
-- `config_file`: Path to clang-tidy config file. If set, the config file is used
-  instead of `clang_tidy_checks`
+- `config_file`: Path to clang-tidy config file, replaces `clang_tidy_checks`. Example for a .clang-tidy file at the root of the repo: `config_file: '.clang-tidy'`
   - default: ''
 - `include`: Comma-separated list of files or patterns to include
   - default: `"*.[ch],*.[ch]xx,*.[ch]pp,*.[ch]++,*.cc,*.hh"`
