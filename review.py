@@ -791,7 +791,7 @@ if __name__ == "__main__":
         ].split(",")
         with message_group(f"Installing additional packages: {apt_packages}"):
             subprocess.run(
-                ["apt", "install", "-y", "--no-install-recommends"] + apt_packages
+                ["apt-get", "install", "-y", "--no-install-recommends"] + apt_packages
             )
 
     build_compile_commands = f"{args.build_dir}/compile_commands.json"
