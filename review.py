@@ -543,7 +543,6 @@ def get_clang_tidy_warnings(
         print(
             f"\n\nclang-tidy failed with return code {e.returncode} and error:\n{e.stderr}\nOutput was:\n{e.stdout}"
         )
-        raise
     end = datetime.datetime.now()
 
     print(f"Took: {end - start}")
