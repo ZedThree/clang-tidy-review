@@ -18,8 +18,8 @@ inputs:
     default: ${{ github.workspace }}
     require: false
   clang_tidy_version:
-    description: 'Version of clang-tidy to use; one of 6.0, 7, 8, 9, 10, 11, 12'
-    default: '12'
+    description: 'Version of clang-tidy to use; one of 11, 12, 13, 14'
+    default: '14'
     required: false
   clang_tidy_checks:
     description: 'List of checks'
