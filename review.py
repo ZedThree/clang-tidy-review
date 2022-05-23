@@ -805,12 +805,6 @@ if __name__ == "__main__":
         default=25,
     )
     parser.add_argument("--token", help="github auth token")
-    
-    parser.add_argument(
-        "--restrict-to-compile-command-json",
-        help = "Only check files that are specified in the compile_commands.json file."
-    )
-    
     parser.add_argument(
         "--dry-run", help="Run and generate review, but don't post", action="store_true"
     )
