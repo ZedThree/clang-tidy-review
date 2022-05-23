@@ -165,6 +165,29 @@ def make_file_offset_lookup(filenames):
 
     return lookup
 
+def get_diagnostic_file_path(clang_tidy_diagnostic):
+    if ("DiagnosticMessage" in clang_tidy_diagnostic) and ("FilePath" in clang_tidy_diagnostic["DiagnosticMessage"]):
+        # Modern clang-tidy
+        file_path = clang_tidy_diagnostic["DiagnosticMessage"]["FilePath"]
+    elif "FilePath" in clang_tidy_diagnostic["DiagnosticMessage"]:
+        # Pre-clang-tidy-9 format
+        file_path = clang_tidy_diagnostic["FilePath"]
+    else:
+        return ""
+
+    # Sometimes, clang-tidy gives us an absolute path, so everything is fine.
+    # Sometimes however it gives us a relative path that is realtive to the
+    # build directory, so we prepend that.
+    if file_path == "":
+        return ""
+    elif os.path.isabs(file_path):
+        return os.path.normpath(file_path)
+    else:
+        # Make the relative path absolute with the build dir
+        if "BuildDirectory" in clang_tidy_diagnostic:
+            return os.path.normpath(os.path.join(clang_tidy_diagnostic["BuildDirectory"], file_path))
+        else:
+            return os.path.normpath(file_path)
 
 def find_line_number_from_offset(offset_lookup, filename, offset):
     """Work out which line number `offset` corresponds to using `offset_lookup`.
@@ -387,7 +410,7 @@ def format_notes(notes, offset_lookup):
     return code_blocks
 
 
-def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup, notes):
+def make_comment_from_diagnostic(diagnostic_name, diagnostic, filename ,offset_lookup, notes):
     """Create a comment from a diagnostic
 
     Comment contains the diagnostic message, plus its name, along with
@@ -396,7 +419,6 @@ def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup, not
 
     """
 
-    filename = diagnostic["FilePath"]
     line_num = find_line_number_from_offset(
         offset_lookup, filename, diagnostic["FileOffset"]
     )
@@ -439,22 +461,23 @@ def make_review(diagnostics, diff_lookup, offset_lookup):
         except KeyError:
             # Pre-clang-tidy-9 format
             diagnostic_message = diagnostic
-
+            
         if diagnostic_message["FilePath"] == "":
             continue
 
         comment_body, end_line = make_comment_from_diagnostic(
             diagnostic["DiagnosticName"],
             diagnostic_message,
+            get_diagnostic_file_path(diagnostic),
             offset_lookup,
             notes=diagnostic.get("Notes", []),
         )
 
-        rel_path = str(try_relative(diagnostic_message["FilePath"]))
+        rel_path = str(try_relative(get_diagnostic_file_path(diagnostic)))
         # diff lines are 1-indexed
         source_line = 1 + find_line_number_from_offset(
             offset_lookup,
-            diagnostic_message["FilePath"],
+            get_diagnostic_file_path(diagnostic),
             diagnostic_message["FileOffset"],
         )
 
@@ -631,7 +654,7 @@ def main(
         clang_tidy_checks,
         clang_tidy_binary,
         config_file,
-        " ".join(files),
+        '"' + '" "'.join(files) + '"',
     )
     print("clang-tidy had the following warnings:\n", clang_tidy_warnings, flush=True)
 
