@@ -558,7 +558,7 @@ def get_clang_tidy_warnings(
     if config_file != "":
         config = f"-config-file=\"{config_file}\""
     else:
-        config = f"-checks=\"{clang_tidy_checks}\""
+        config = f"-checks={clang_tidy_checks}"
 
     print(f"Using config: {config}")
 
