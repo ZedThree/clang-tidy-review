@@ -165,29 +165,37 @@ def make_file_offset_lookup(filenames):
 
     return lookup
 
-def get_diagnostic_file_path(clang_tidy_diagnostic):
-    if ("DiagnosticMessage" in clang_tidy_diagnostic) and ("FilePath" in clang_tidy_diagnostic["DiagnosticMessage"]):
-        # Modern clang-tidy
-        file_path = clang_tidy_diagnostic["DiagnosticMessage"]["FilePath"]
-    elif "FilePath" in clang_tidy_diagnostic["DiagnosticMessage"]:
-        # Pre-clang-tidy-9 format
-        file_path = clang_tidy_diagnostic["FilePath"]
-    else:
-        return ""
-
+def get_diagnostic_file_path(clang_tidy_diagnostic, build_dir):
+    
     # Sometimes, clang-tidy gives us an absolute path, so everything is fine.
     # Sometimes however it gives us a relative path that is realtive to the
     # build directory, so we prepend that.
-    if file_path == "":
-        return ""
-    elif os.path.isabs(file_path):
-        return os.path.normpath(file_path)
-    else:
-        # Make the relative path absolute with the build dir
-        if "BuildDirectory" in clang_tidy_diagnostic:
-            return os.path.normpath(os.path.join(clang_tidy_diagnostic["BuildDirectory"], file_path))
+    
+    # Modern clang-tidy
+    if ("DiagnosticMessage" in clang_tidy_diagnostic) and ("FilePath" in clang_tidy_diagnostic["DiagnosticMessage"]):
+        file_path = clang_tidy_diagnostic["DiagnosticMessage"]["FilePath"]
+        if file_path == "":
+            return ""
+        elif os.path.isabs(file_path):
+            return os.path.normpath(os.path.abspath(file_path))
         else:
-            return os.path.normpath(file_path)
+            # Make the relative path absolute with the build dir
+            if "BuildDirectory" in clang_tidy_diagnostic:
+                return os.path.normpath(os.path.abspath(os.path.join(clang_tidy_diagnostic["BuildDirectory"], file_path)))
+            else:
+                return os.path.normpath(os.path.abspath(file_path))
+      
+    # Pre-clang-tidy-9 format
+    elif "FilePath" in clang_tidy_diagnostic:
+        file_path = clang_tidy_diagnostic["FilePath"]
+        if file_path == "":
+            return ""
+        else:
+            return os.path.normpath(os.path.abspath(os.path.join(build_dir, file_path)))
+        
+    else:
+        return ""
+
 
 def find_line_number_from_offset(offset_lookup, filename, offset):
     """Work out which line number `offset` corresponds to using `offset_lookup`.
@@ -450,7 +458,7 @@ def make_comment_from_diagnostic(diagnostic_name, diagnostic, filename ,offset_l
     return comment_body, end_line + 1
 
 
-def make_review(diagnostics, diff_lookup, offset_lookup):
+def make_review(diagnostics, diff_lookup, offset_lookup, build_dir):
     """Create a Github review from a set of clang-tidy diagnostics"""
 
     comments = []
@@ -468,16 +476,16 @@ def make_review(diagnostics, diff_lookup, offset_lookup):
         comment_body, end_line = make_comment_from_diagnostic(
             diagnostic["DiagnosticName"],
             diagnostic_message,
-            get_diagnostic_file_path(diagnostic),
+            get_diagnostic_file_path(diagnostic, build_dir),
             offset_lookup,
             notes=diagnostic.get("Notes", []),
         )
 
-        rel_path = str(try_relative(get_diagnostic_file_path(diagnostic)))
+        rel_path = str(try_relative(get_diagnostic_file_path(diagnostic, build_dir)))
         # diff lines are 1-indexed
         source_line = 1 + find_line_number_from_offset(
             offset_lookup,
-            get_diagnostic_file_path(diagnostic),
+            get_diagnostic_file_path(diagnostic, build_dir),
             diagnostic_message["FileOffset"],
         )
 
@@ -548,9 +556,9 @@ def get_clang_tidy_warnings(
     """Get the clang-tidy warnings"""
 
     if config_file != "":
-        config = f"-config-file={config_file}"
+        config = f"-config-file=\"{config_file}\""
     else:
-        config = f"-checks={clang_tidy_checks}"
+        config = f"-checks=\"{clang_tidy_checks}\""
 
     print(f"Using config: {config}")
 
@@ -669,7 +677,7 @@ def main(
 
     with message_group("Creating review from warnings"):
         review = make_review(
-            clang_tidy_warnings["Diagnostics"], diff_lookup, offset_lookup
+            clang_tidy_warnings["Diagnostics"], diff_lookup, offset_lookup, build_dir
         )
 
     print(
@@ -797,6 +805,12 @@ if __name__ == "__main__":
         default=25,
     )
     parser.add_argument("--token", help="github auth token")
+    
+    parser.add_argument(
+        "--restrict-to-compile-command-json",
+        help = "Only check files that are specified in the compile_commands.json file."
+    )
+    
     parser.add_argument(
         "--dry-run", help="Run and generate review, but don't post", action="store_true"
     )
