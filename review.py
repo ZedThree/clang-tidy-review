@@ -165,6 +165,37 @@ def make_file_offset_lookup(filenames):
 
     return lookup
 
+def get_diagnostic_file_path(clang_tidy_diagnostic, build_dir):
+    
+    # Sometimes, clang-tidy gives us an absolute path, so everything is fine.
+    # Sometimes however it gives us a relative path that is realtive to the
+    # build directory, so we prepend that.
+    
+    # Modern clang-tidy
+    if ("DiagnosticMessage" in clang_tidy_diagnostic) and ("FilePath" in clang_tidy_diagnostic["DiagnosticMessage"]):
+        file_path = clang_tidy_diagnostic["DiagnosticMessage"]["FilePath"]
+        if file_path == "":
+            return ""
+        elif os.path.isabs(file_path):
+            return os.path.normpath(os.path.abspath(file_path))
+        else:
+            # Make the relative path absolute with the build dir
+            if "BuildDirectory" in clang_tidy_diagnostic:
+                return os.path.normpath(os.path.abspath(os.path.join(clang_tidy_diagnostic["BuildDirectory"], file_path)))
+            else:
+                return os.path.normpath(os.path.abspath(file_path))
+      
+    # Pre-clang-tidy-9 format
+    elif "FilePath" in clang_tidy_diagnostic:
+        file_path = clang_tidy_diagnostic["FilePath"]
+        if file_path == "":
+            return ""
+        else:
+            return os.path.normpath(os.path.abspath(os.path.join(build_dir, file_path)))
+        
+    else:
+        return ""
+
 
 def find_line_number_from_offset(offset_lookup, filename, offset):
     """Work out which line number `offset` corresponds to using `offset_lookup`.
@@ -387,7 +418,7 @@ def format_notes(notes, offset_lookup):
     return code_blocks
 
 
-def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup, notes):
+def make_comment_from_diagnostic(diagnostic_name, diagnostic, filename ,offset_lookup, notes):
     """Create a comment from a diagnostic
 
     Comment contains the diagnostic message, plus its name, along with
@@ -396,7 +427,6 @@ def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup, not
 
     """
 
-    filename = diagnostic["FilePath"]
     line_num = find_line_number_from_offset(
         offset_lookup, filename, diagnostic["FileOffset"]
     )
@@ -428,7 +458,7 @@ def make_comment_from_diagnostic(diagnostic_name, diagnostic, offset_lookup, not
     return comment_body, end_line + 1
 
 
-def make_review(diagnostics, diff_lookup, offset_lookup):
+def make_review(diagnostics, diff_lookup, offset_lookup, build_dir):
     """Create a Github review from a set of clang-tidy diagnostics"""
 
     comments = []
@@ -439,22 +469,23 @@ def make_review(diagnostics, diff_lookup, offset_lookup):
         except KeyError:
             # Pre-clang-tidy-9 format
             diagnostic_message = diagnostic
-
+            
         if diagnostic_message["FilePath"] == "":
             continue
 
         comment_body, end_line = make_comment_from_diagnostic(
             diagnostic["DiagnosticName"],
             diagnostic_message,
+            get_diagnostic_file_path(diagnostic, build_dir),
             offset_lookup,
             notes=diagnostic.get("Notes", []),
         )
 
-        rel_path = str(try_relative(diagnostic_message["FilePath"]))
+        rel_path = str(try_relative(get_diagnostic_file_path(diagnostic, build_dir)))
         # diff lines are 1-indexed
         source_line = 1 + find_line_number_from_offset(
             offset_lookup,
-            diagnostic_message["FilePath"],
+            get_diagnostic_file_path(diagnostic, build_dir),
             diagnostic_message["FileOffset"],
         )
 
@@ -525,7 +556,7 @@ def get_clang_tidy_warnings(
     """Get the clang-tidy warnings"""
 
     if config_file != "":
-        config = f"-config-file={config_file}"
+        config = f"-config-file=\"{config_file}\""
     else:
         config = f"-checks={clang_tidy_checks}"
 
@@ -631,7 +662,7 @@ def main(
         clang_tidy_checks,
         clang_tidy_binary,
         config_file,
-        " ".join(files),
+        '"' + '" "'.join(files) + '"',
     )
     print("clang-tidy had the following warnings:\n", clang_tidy_warnings, flush=True)
 
@@ -646,7 +677,7 @@ def main(
 
     with message_group("Creating review from warnings"):
         review = make_review(
-            clang_tidy_warnings["Diagnostics"], diff_lookup, offset_lookup
+            clang_tidy_warnings["Diagnostics"], diff_lookup, offset_lookup, build_dir
         )
 
     print(
@@ -791,7 +822,7 @@ if __name__ == "__main__":
         ].split(",")
         with message_group(f"Installing additional packages: {apt_packages}"):
             subprocess.run(
-                ["apt", "install", "-y", "--no-install-recommends"] + apt_packages
+                ["apt-get", "install", "-y", "--no-install-recommends"] + apt_packages
             )
 
     build_compile_commands = f"{args.build_dir}/compile_commands.json"
