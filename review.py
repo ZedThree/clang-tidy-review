@@ -690,10 +690,10 @@ def main(
             pull_request.post_lgtm_comment()
         return
 
+    print(f"::set-output name=total_comments::{len(review['comments'])}")
+
     print("Removing already posted or extra comments", flush=True)
     trimmed_review = cull_comments(pull_request, review, max_comments)
-
-    print(f"::set-output name=total_comments::{len(review['comments'])}")
 
     if trimmed_review["comments"] == []:
         print("Everything already posted!")
