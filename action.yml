@@ -49,6 +49,10 @@ inputs:
     description: 'Maximum number of comments to post at once'
     required: false
     default: '25'
+  lgtm_comment_body:
+    description: 'Message to post on PR if no issues are found. An empty string will post no LGTM comment.'
+    required: false
+    default: 'clang-tidy review says "All clean, LGTM! :+1:"'
   pr:
     default: ${{ github.event.pull_request.number }}
   repo:
@@ -72,3 +76,4 @@ runs:
     - --exclude='${{ inputs.exclude }}'
     - --apt-packages=${{ inputs.apt_packages }}
     - --cmake-command='${{ inputs.cmake_command }}'
+    - --lgtm-comment-body='${{ inputs.lgtm_comment_body }}'

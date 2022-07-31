@@ -96,6 +96,8 @@ at once, so `clang-tidy-review` will only attempt to post the first
   - default: ''
 - `max_comments`: Maximum number of comments to post at once
   - default: '25'
+- `lgtm_comment_body`: Message to post on PR if no issues are found. An empty string will post no LGTM comment.
+  - default: 'clang-tidy review says "All clean, LGTM! :+1:"'
 
 ## Outputs
 

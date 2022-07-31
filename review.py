@@ -88,19 +88,20 @@ class PullRequest:
             None,
         )
 
-    def post_lgtm_comment(self):
+    def post_lgtm_comment(self, body: str):
         """Post a "LGTM" comment if everything's clean, making sure not to spam"""
 
-        BODY = 'clang-tidy review says "All clean, LGTM! :+1:"'
+        if not body:
+            return
 
         comments = self.get_pr_comments()
 
         for comment in comments:
-            if comment["body"] == BODY:
+            if comment["body"] == body:
                 print("Already posted, no need to update")
                 return
 
-        self._pull_request.create_issue_comment(BODY)
+        self._pull_request.create_issue_comment(body)
 
     def post_review(self, review):
         """Submit a completed review"""
@@ -627,6 +628,7 @@ def main(
     include,
     exclude,
     max_comments,
+    lgtm_comment_body,
     dry_run: bool = False,
 ):
 
@@ -669,7 +671,7 @@ def main(
     if clang_tidy_warnings == {}:
         print("No warnings, LGTM!")
         if not dry_run:
-            pull_request.post_lgtm_comment()
+            pull_request.post_lgtm_comment(lgtm_comment_body)
         return
 
     diff_lookup = make_file_line_lookup(diff)
@@ -687,7 +689,7 @@ def main(
     if review["comments"] == []:
         print("No warnings to report, LGTM!")
         if not dry_run:
-            pull_request.post_lgtm_comment()
+            pull_request.post_lgtm_comment(lgtm_comment_body)
         return
 
     print(f"::set-output name=total_comments::{len(review['comments'])}")
@@ -804,6 +806,12 @@ if __name__ == "__main__":
         type=int,
         default=25,
     )
+    parser.add_argument(
+        "--lgtm-comment-body",
+        help="Message to post on PR if no issues are found. An empty string will post no LGTM comment.",
+        type=str,
+        default='clang-tidy review says "All clean, LGTM! :+1:"',
+    )
     parser.add_argument("--token", help="github auth token")
     parser.add_argument(
         "--dry-run", help="Run and generate review, but don't post", action="store_true"
@@ -849,5 +857,6 @@ if __name__ == "__main__":
         include=include,
         exclude=exclude,
         max_comments=args.max_comments,
+        lgtm_comment_body=strip_enclosing_quotes(args.lgtm_comment_body),
         dry_run=args.dry_run,
     )
