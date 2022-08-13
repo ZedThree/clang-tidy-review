@@ -98,6 +98,8 @@ at once, so `clang-tidy-review` will only attempt to post the first
   - default: '25'
 - `lgtm_comment_body`: Message to post on PR if no issues are found. An empty string will post no LGTM comment.
   - default: 'clang-tidy review says "All clean, LGTM! :+1:"'
+- `split_workflow`: Only generate but don't post the review, leaving it for the second workflow. Relevant when receiving PRs from forks that don't have the required permissions to post reviews.
+  - default: false
 
 ## Outputs
 
@@ -187,6 +189,86 @@ jobs:
         # directory inside the action
         base_dir: ${{ env.base_dir }}
 ```
+
+## Usage in fork environments (Split workflow)
+
+Actions from forks are limited in their permissions for your security. To support this use case, you can use the split workflow described below.
+
+Example lint workflow:
+
+```yaml
+name: clang-tidy-review
+
+# You can be more specific, but it currently only works on pull requests
+on: [pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    # Optionally generate compile_commands.json
+
+    - uses: ZedThree/clang-tidy-review@v0.8.0
+      with:
+        split_workflow: true
+
+    - uses: actions/upload-artifact@v3
+      with:
+        name: clang-tidy-review
+        path: |
+          clang-tidy-review-output.json
+          clang-tidy-review-metadata.json
+```
+
+Example post comments workflow:
+
+```yaml
+name: Post clang-tidy review comments
+
+on:
+  workflow_run:
+    # The name field of the lint action
+    workflows: ["clang-tidy-review"]
+    types:
+      - completed
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Downloads the artifact uploaded by the lint action
+      - name: 'Download artifact'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: ${{github.event.workflow_run.id }},
+            });
+            const matchArtifact = artifacts.data.artifacts.filter((artifact) => {
+              return artifact.name == "clang-tidy-review"
+            })[0];
+            const download = await github.rest.actions.downloadArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: matchArtifact.id,
+              archive_format: 'zip',
+            });
+            const fs = require('fs');
+            fs.writeFileSync('${{github.workspace}}/clang-tidy-review.zip', Buffer.from(download.data));
+      - name: 'Unzip artifact'
+        run: unzip clang-tidy-review.zip
+
+      - uses: ZedThree/clang-tidy-review/post@v0.8.0
+```
+
+The lint workflow runs with limited permissions, while the post comments workflow has the required permissions because it's triggered by the `workflow_run` event.  
+Read more about workflow security limitations [here](https://securitylab.github.com/research/github-actions-preventing-pwn-requests/).
 
 ## Real world project samples
 |Project|Workflow|
