@@ -53,6 +53,10 @@ inputs:
     description: 'Message to post on PR if no issues are found. An empty string will post no LGTM comment.'
     required: false
     default: 'clang-tidy review says "All clean, LGTM! :+1:"'
+  split_workflow:
+    description: "Only generate but don't post the review, leaving it for the second workflow. Relevant when receiving PRs from forks that don't have the required permissions to post reviews."
+    required: false
+    default: false
   pr:
     default: ${{ github.event.pull_request.number }}
   repo:
@@ -77,3 +81,4 @@ runs:
     - --apt-packages=${{ inputs.apt_packages }}
     - --cmake-command='${{ inputs.cmake_command }}'
     - --lgtm-comment-body='${{ inputs.lgtm_comment_body }}'
+    - --split_workflow=${{ inputs.split_workflow }}

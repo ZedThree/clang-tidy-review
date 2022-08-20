@@ -42,6 +42,7 @@ def main(
     exclude,
     max_comments,
     lgtm_comment_body,
+    split_workflow: bool,
     dry_run: bool = False,
 ):
 
@@ -203,6 +204,15 @@ if __name__ == "__main__":
         type=str,
         default="",
     )
+
+    def bool_argument(user_input):
+        user_input = str(user_input).upper()
+        if user_input == "TRUE":
+            return True
+        if user_input == "FALSE":
+            return False
+        raise ValueError("Invalid value passed to bool_argument")
+
     parser.add_argument(
         "--max-comments",
         help="Maximum number of comments to post at once",
@@ -214,6 +224,12 @@ if __name__ == "__main__":
         help="Message to post on PR if no issues are found. An empty string will post no LGTM comment.",
         type=str,
         default='clang-tidy review says "All clean, LGTM! :+1:"',
+    )
+    parser.add_argument(
+        "--split_workflow",
+        help="Only generate but don't post the review, leaving it for the second workflow. Relevant when receiving PRs from forks that don't have the required permissions to post reviews.",
+        type=bool_argument,
+        default=False,
     )
     parser.add_argument("--token", help="github auth token")
     parser.add_argument(
@@ -261,5 +277,6 @@ if __name__ == "__main__":
         exclude=exclude,
         max_comments=args.max_comments,
         lgtm_comment_body=strip_enclosing_quotes(args.lgtm_comment_body),
+        split_workflow=args.split_workflow,
         dry_run=args.dry_run,
     )
