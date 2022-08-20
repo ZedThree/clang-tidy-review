@@ -16,8 +16,15 @@ RUN apt update && \
     clang-tidy-12 \
     python3 python3-pip && \
     pip3 install --upgrade pip && \
-    pip3 install -r requirements.txt
+    pip3 install -r requirements.txt && \
+    rm -rf /var/lib/apt/lists/
 
-COPY review.py /review.py
+WORKDIR /action
 
-ENTRYPOINT ["/review.py"]
+COPY review.py /action/review.py
+
+# Include the entirety of the post directory for simplicity's sake
+# Technically we only need the clang_tidy_review directory but this keeps things consistent for running the command locally during development and in the docker image
+COPY post /action/post
+
+ENTRYPOINT ["/action/review.py"]
