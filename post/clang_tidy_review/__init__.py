@@ -4,6 +4,7 @@
 # See LICENSE for more information
 
 import argparse
+import fnmatch
 import itertools
 import json
 import os
@@ -17,15 +18,15 @@ import unidiff
 import yaml
 import contextlib
 import datetime
-import subprocess
 from github import Github
 from github.Requester import Requester
 from github.PaginatedList import PaginatedList
-from typing import Any, List, Optional, TypedDict
+from typing import List, Optional, TypedDict
 
 DIFF_HEADER_LINE_LENGTH = 5
 FIXES_FILE = "clang_tidy_review.yaml"
 METADATA_FILE = "clang-tidy-review-metadata.json"
+REVIEW_FILE = "clang-tidy-review-output.json"
 
 
 class Metadata(TypedDict):
@@ -35,6 +36,60 @@ class Metadata(TypedDict):
     """
 
     pr_number: int
+
+
+class PRReviewComment(TypedDict):
+    path: str
+    position: Optional[int]
+    body: str
+    line: Optional[int]
+    side: Optional[str]
+    start_line: Optional[int]
+    start_side: Optional[str]
+
+
+class PRReview(TypedDict):
+    body: str
+    event: str
+    comments: List[PRReviewComment]
+
+
+def build_clang_tidy_warnings(
+    line_filter, build_dir, clang_tidy_checks, clang_tidy_binary, config_file, files
+) -> None:
+    """Run clang-tidy on the given files and save output into FIXES_FILE"""
+
+    if config_file != "":
+        config = f'-config-file="{config_file}"'
+    else:
+        config = f"-checks={clang_tidy_checks}"
+
+    print(f"Using config: {config}")
+
+    command = f"{clang_tidy_binary} -p={build_dir} {config} -line-filter={line_filter} {files} --export-fixes={FIXES_FILE}"
+
+    start = datetime.datetime.now()
+    try:
+        with message_group(f"Running:\n\t{command}"):
+            subprocess.run(
+                command, capture_output=True, shell=True, check=True, encoding="utf-8"
+            )
+    except subprocess.CalledProcessError as e:
+        print(
+            f"\n\nclang-tidy failed with return code {e.returncode} and error:\n{e.stderr}\nOutput was:\n{e.stdout}"
+        )
+    end = datetime.datetime.now()
+
+    print(f"Took: {end - start}")
+
+
+def load_clang_tidy_warnings():
+    """Read clang-tidy warnings from FIXES_FILE. Can be produced by build_clang_tidy_warnings"""
+    try:
+        with open(FIXES_FILE, "r") as fixes_file:
+            return yaml.safe_load(fixes_file)
+    except FileNotFoundError:
+        return {}
 
 
 class PullRequest:
@@ -481,12 +536,17 @@ def make_comment_from_diagnostic(
     return comment_body, end_line + 1
 
 
-def make_review(diagnostics, diff_lookup, offset_lookup, build_dir):
+def create_review_file(
+    clang_tidy_warnings, diff_lookup, offset_lookup, build_dir
+) -> Optional[PRReview]:
     """Create a Github review from a set of clang-tidy diagnostics"""
 
-    comments = []
+    if "Diagnostics" not in clang_tidy_warnings:
+        return None
 
-    for diagnostic in diagnostics:
+    comments: List[PRReviewComment] = []
+
+    for diagnostic in clang_tidy_warnings["Diagnostics"]:
         try:
             diagnostic_message = diagnostic["DiagnosticMessage"]
         except KeyError:
@@ -535,7 +595,7 @@ def make_review(diagnostics, diff_lookup, offset_lookup, build_dir):
                 }
             )
 
-    review = {
+    review: PRReview = {
         "body": "clang-tidy made some suggestions",
         "event": "COMMENT",
         "comments": comments,
@@ -543,23 +603,101 @@ def make_review(diagnostics, diff_lookup, offset_lookup, build_dir):
     return review
 
 
+def create_review(
+    pull_request: PullRequest,
+    build_dir: str,
+    clang_tidy_checks: str,
+    clang_tidy_binary: str,
+    config_file: str,
+    include: List[str],
+    exclude: List[str],
+) -> Optional[PRReview]:
+    """Given the parameters, runs clang-tidy and creates a review.
+    If no files were changed, or no warnings could be found, None will be returned.
+
+    """
+
+    diff = pull_request.get_pr_diff()
+    print(f"\nDiff from GitHub PR:\n{diff}\n")
+
+    changed_files = [filename.target_file[2:] for filename in diff]
+    files = []
+    for pattern in include:
+        files.extend(fnmatch.filter(changed_files, pattern))
+        print(f"include: {pattern}, file list now: {files}")
+    for pattern in exclude:
+        files = [f for f in files if not fnmatch.fnmatch(f, pattern)]
+        print(f"exclude: {pattern}, file list now: {files}")
+
+    if files == []:
+        print("No files to check!")
+        return None
+
+    print(f"Checking these files: {files}", flush=True)
+
+    line_ranges = get_line_ranges(diff, files)
+    if line_ranges == "[]":
+        print("No lines added in this PR!")
+        return None
+
+    print(f"Line filter for clang-tidy:\n{line_ranges}\n")
+
+    # Run clang-tidy with the configured parameters and produce the CLANG_TIDY_FIXES file
+    build_clang_tidy_warnings(
+        line_ranges,
+        build_dir,
+        clang_tidy_checks,
+        clang_tidy_binary,
+        config_file,
+        '"' + '" "'.join(files) + '"',
+    )
+
+    # Read and parse the CLANG_TIDY_FIXES file
+    clang_tidy_warnings = load_clang_tidy_warnings()
+
+    print("clang-tidy had the following warnings:\n", clang_tidy_warnings, flush=True)
+
+    diff_lookup = make_file_line_lookup(diff)
+    offset_lookup = make_file_offset_lookup(files)
+
+    with message_group("Creating review from warnings"):
+        review = create_review_file(
+            clang_tidy_warnings, diff_lookup, offset_lookup, build_dir
+        )
+        with open(REVIEW_FILE, "w") as review_file:
+            json.dump(review, review_file)
+
+        return review
+
+
 def load_metadata() -> Metadata:
     """Load metadata from the METADATA_FILE path"""
 
     with open(METADATA_FILE, "r") as metadata_file:
-        x = json.load(metadata_file)
-        print(f"x: {x}")
-        return x
+        return json.load(metadata_file)
+
 
 def save_metadata(pr_number: int) -> None:
     """Save metadata to the METADATA_FILE path"""
 
-    metadata: Metadata = {
-            "pr_number": pr_number
-            }
+    metadata: Metadata = {"pr_number": pr_number}
 
     with open(METADATA_FILE, "w") as metadata_file:
         json.dump(metadata, metadata_file)
+
+
+def load_review() -> Optional[PRReview]:
+    """Load review output from the standard REVIEW_FILE path.
+    This file contains
+
+    """
+
+    with open(REVIEW_FILE, "r") as review_file:
+        payload = json.load(review_file)
+        if payload:
+            return payload
+
+        return None
 
 
 def get_line_ranges(diff, files):
@@ -590,41 +728,6 @@ def get_line_ranges(diff, files):
     for name, lines in lines_by_file.items():
         line_filter_json.append(str({"name": name, "lines": lines}))
     return json.dumps(line_filter_json, separators=(",", ":"))
-
-
-def get_clang_tidy_warnings(
-    line_filter, build_dir, clang_tidy_checks, clang_tidy_binary, config_file, files
-    ):
-    """Run clang-tidy on the given files and save output into FIXES_FILE"""
-
-    if config_file != "":
-        config = f'-config-file="{config_file}"'
-    else:
-        config = f"-checks={clang_tidy_checks}"
-
-    print(f"Using config: {config}")
-
-    command = f"{clang_tidy_binary} -p={build_dir} {config} -line-filter={line_filter} {files} --export-fixes={FIXES_FILE}"
-
-    start = datetime.datetime.now()
-    try:
-        with message_group(f"Running:\n\t{command}"):
-            output = subprocess.run(
-                command, capture_output=True, shell=True, check=True, encoding="utf-8"
-            )
-    except subprocess.CalledProcessError as e:
-        print(
-            f"\n\nclang-tidy failed with return code {e.returncode} and error:\n{e.stderr}\nOutput was:\n{e.stdout}"
-        )
-    end = datetime.datetime.now()
-
-    print(f"Took: {end - start}")
-
-    try:
-        with open(FIXES_FILE, "r") as fixes_file:
-            return yaml.safe_load(fixes_file)
-    except FileNotFoundError:
-        return {}
 
 
 def cull_comments(pull_request: PullRequest, review, max_comments):
@@ -668,3 +771,41 @@ def strip_enclosing_quotes(string: str) -> str:
         if stripped.startswith(quote) and stripped.endswith(quote):
             stripped = stripped[1:-1]
     return stripped
+
+
+def post_review(
+    pull_request: PullRequest,
+    review: Optional[PRReview],
+    max_comments: int,
+    lgtm_comment_body: str,
+    dry_run: bool,
+) -> int:
+    print(
+        "Created the following review:\n", pprint.pformat(review, width=130), flush=True
+    )
+
+    if not review or review["comments"] == []:
+        print("No warnings to report, LGTM!")
+        if not dry_run:
+            pull_request.post_lgtm_comment(lgtm_comment_body)
+        return 0
+
+    print(f"::set-output name=total_comments::{len(review['comments'])}")
+
+    total_comments = len(review["comments"])
+
+    print("Removing already posted or extra comments", flush=True)
+    trimmed_review = cull_comments(pull_request, review, max_comments)
+
+    if trimmed_review["comments"] == []:
+        print("Everything already posted!")
+        return total_comments
+
+    if dry_run:
+        pprint.pprint(review, width=130)
+        return total_comments
+
+    print("Posting the review:\n", pprint.pformat(trimmed_review), flush=True)
+    pull_request.post_review(trimmed_review)
+
+    return total_comments

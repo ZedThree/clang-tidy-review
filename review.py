@@ -6,24 +6,19 @@
 # See LICENSE for more information
 
 import argparse
-import fnmatch
 import json
 import os
 import pathlib
-import pprint
 import re
 import subprocess
 
 from post.clang_tidy_review import (
         PullRequest,
-        get_line_ranges,
-        get_clang_tidy_warnings,
-        make_file_line_lookup,
-        make_file_offset_lookup,
         message_group,
-        make_review,
-        cull_comments,
         strip_enclosing_quotes,
+        create_review,
+        save_metadata,
+        post_review,
         )
 
 
@@ -47,83 +42,25 @@ def main(
 ):
 
     pull_request = PullRequest(repo, pr_number, token)
-    diff = pull_request.get_pr_diff()
-    print(f"\nDiff from GitHub PR:\n{diff}\n")
 
-    changed_files = [filename.target_file[2:] for filename in diff]
-    files = []
-    for pattern in include:
-        files.extend(fnmatch.filter(changed_files, pattern))
-        print(f"include: {pattern}, file list now: {files}")
-    for pattern in exclude:
-        files = [f for f in files if not fnmatch.fnmatch(f, pattern)]
-        print(f"exclude: {pattern}, file list now: {files}")
-
-    if files == []:
-        print("No files to check!")
-        return
-
-    print(f"Checking these files: {files}", flush=True)
-
-    line_ranges = get_line_ranges(diff, files)
-    if line_ranges == "[]":
-        print("No lines added in this PR!")
-        return
-
-    print(f"Line filter for clang-tidy:\n{line_ranges}\n")
-
-    clang_tidy_warnings = get_clang_tidy_warnings(
-        line_ranges,
+    review = create_review(
+        pull_request,
         build_dir,
         clang_tidy_checks,
         clang_tidy_binary,
         config_file,
-        '"' + '" "'.join(files) + '"',
+        include,
+        exclude,
     )
-    print("clang-tidy had the following warnings:\n", clang_tidy_warnings, flush=True)
-
-    if clang_tidy_warnings == {}:
-        print("No warnings, LGTM!")
-        if not dry_run:
-            pull_request.post_lgtm_comment(lgtm_comment_body)
-        return
-
-    diff_lookup = make_file_line_lookup(diff)
-    offset_lookup = make_file_offset_lookup(files)
-
-    with message_group("Creating review from warnings"):
-        review = make_review(
-            clang_tidy_warnings["Diagnostics"], diff_lookup, offset_lookup, build_dir
-        )
-
-    print(
-        "Created the following review:\n", pprint.pformat(review, width=130), flush=True
-    )
-
-    if review["comments"] == []:
-        print("No warnings to report, LGTM!")
-        if not dry_run:
-            pull_request.post_lgtm_comment(lgtm_comment_body)
-        return
-
-    print(f"::set-output name=total_comments::{len(review['comments'])}")
-
-    print("Removing already posted or extra comments", flush=True)
-    trimmed_review = cull_comments(pull_request, review, max_comments)
-
-    if trimmed_review["comments"] == []:
-        print("Everything already posted!")
-        return review
-
-    if dry_run:
-        pprint.pprint(review, width=130)
-        return
-
-    print("Posting the review:\n", pprint.pformat(trimmed_review), flush=True)
-    pull_request.post_review(trimmed_review)
 
     with message_group("Saving metadata"):
         save_metadata(pr_number)
+
+    if split_workflow:
+        print("split_workflow is enabled, not posting review")
+    else:
+        post_review(pull_request, review, max_comments, lgtm_comment_body, dry_run)
+
 
 def fix_absolute_paths(build_compile_commands, base_dir):
     """Update absolute paths in compile_commands.json to new location, if
