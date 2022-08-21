@@ -21,10 +21,20 @@ import subprocess
 from github import Github
 from github.Requester import Requester
 from github.PaginatedList import PaginatedList
-from typing import Any, List, Optional
+from typing import Any, List, Optional, TypedDict
 
 DIFF_HEADER_LINE_LENGTH = 5
 FIXES_FILE = "clang_tidy_review.yaml"
+METADATA_FILE = "clang-tidy-review-metadata.json"
+
+
+class Metadata(TypedDict):
+    """Loaded from `METADATA_FILE`
+    Contains information necessary to post a review without pull request knowledge
+
+    """
+
+    pr_number: int
 
 
 class PullRequest:
@@ -524,6 +534,25 @@ def make_review(diagnostics, diff_lookup, offset_lookup, build_dir):
         "comments": comments,
     }
     return review
+
+
+def load_metadata() -> Metadata:
+    """Load metadata from the METADATA_FILE path"""
+
+    with open(METADATA_FILE, "r") as metadata_file:
+        x = json.load(metadata_file)
+        print(f"x: {x}")
+        return x
+
+def save_metadata(pr_number: int) -> None:
+    """Save metadata to the METADATA_FILE path"""
+
+    metadata: Metadata = {
+            "pr_number": pr_number
+            }
+
+    with open(METADATA_FILE, "w") as metadata_file:
+        json.dump(metadata, metadata_file)
 
 
 def get_line_ranges(diff, files):

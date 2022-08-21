@@ -121,6 +121,8 @@ def main(
     print("Posting the review:\n", pprint.pformat(trimmed_review), flush=True)
     pull_request.post_review(trimmed_review)
 
+    with message_group("Saving metadata"):
+        save_metadata(pr_number)
 
 def fix_absolute_paths(build_compile_commands, base_dir):
     """Update absolute paths in compile_commands.json to new location, if
