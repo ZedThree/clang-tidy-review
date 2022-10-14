@@ -178,7 +178,16 @@ class PullRequest:
             post_review_response.raise_for_status()
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 403:
-                print("::error title=Missing permissions::This workflow does not have enough permissions to submit a review. This could be because the GitHub token specified for this workflow is invalid or missing permissions, or it could be because this pull request comes from a fork which reduces the default token permissions. To support forked workflows, see the https://github.com/ZedThree/clang-tidy-review#usage-in-fork-environments instructions")
+                print(
+                    "::error title=Missing permissions::This workflow does not have "
+                    "enough permissions to submit a review. This could be because "
+                    "the GitHub token specified for this workflow is invalid or "
+                    "missing permissions, or it could be because this pull request "
+                    "comes from a fork which reduces the default token permissions. "
+                    "To support forked workflows, see the "
+                    "https://github.com/ZedThree/clang-tidy-review#usage-in-fork-environments "
+                    "instructions"
+                )
 
             # Re-raise the exception, causing an error in the workflow
             raise e

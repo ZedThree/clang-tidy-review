@@ -9,12 +9,12 @@ import argparse
 import pprint
 
 from clang_tidy_review import (
-        PullRequest,
-        load_review,
-        post_review,
-        load_metadata,
-        strip_enclosing_quotes,
-        )
+    PullRequest,
+    load_review,
+    post_review,
+    load_metadata,
+    strip_enclosing_quotes,
+)
 
 
 def main(

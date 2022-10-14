@@ -13,13 +13,13 @@ import re
 import subprocess
 
 from post.clang_tidy_review import (
-        PullRequest,
-        message_group,
-        strip_enclosing_quotes,
-        create_review,
-        save_metadata,
-        post_review,
-        )
+    PullRequest,
+    message_group,
+    strip_enclosing_quotes,
+    create_review,
+    save_metadata,
+    post_review,
+)
 
 
 BAD_CHARS_APT_PACKAGES_PATTERN = "[;&|($]"
