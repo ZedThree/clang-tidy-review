@@ -1,0 +1,32 @@
+name: 'clang-tidy review - post comments'
+author: 'Peter Hill'
+description: 'Create a pull request review based on warnings produced by the parent action'
+branding:
+  icon: 'book-open'
+  color: 'red'
+inputs:
+  token:
+    description: 'Authentication token'
+    default: ${{ github.token }}
+    required: false
+  repo:
+    default: ${{ github.repository }}
+  max_comments:
+    description: 'Maximum number of comments to post at once'
+    required: false
+    default: '25'
+  lgtm_comment_body:
+    description: 'Message to post on PR if no issues are found. An empty string will post no LGTM comment.'
+    required: false
+    default: 'clang-tidy review says "All clean, LGTM! :+1:"'
+outputs:
+  total_comments:
+    description: 'Total number of warnings from clang-tidy'
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  args:
+    - --token=${{ inputs.token }}
+    - --repo=${{ inputs.repo }}
+    - --max-comments=${{ inputs.max_comments }}
+    - --lgtm-comment-body='${{ inputs.lgtm_comment_body }}'
