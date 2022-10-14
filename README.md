@@ -32,11 +32,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
 
     # Optionally generate compile_commands.json
 
-    - uses: ZedThree/clang-tidy-review@v0.7.0
+    - uses: ZedThree/clang-tidy-review@v0.10.0
       id: review
     # If there are any comments, fail the check
     - if: steps.review.outputs.total_comments > 0
@@ -126,9 +126,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
 
-    - uses: ZedThree/clang-tidy-review@v0.8.0
+    - uses: ZedThree/clang-tidy-review@v0.10.0
       id: review
       with:
         # List of packages to install
@@ -174,14 +174,14 @@ jobs:
       image: my-container
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
 
     # Get the current working directory and set it
     # as an environment variable
     - name: Set base_dir
       run: echo "base_dir=$(pwd)" >> $GITHUB_ENV
 
-    - uses: ZedThree/clang-tidy-review@v0.8.0
+    - uses: ZedThree/clang-tidy-review@v0.10.0
       id: review
       with:
         # Tell clang-tidy-review the base directory.
@@ -207,11 +207,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
 
     # Optionally generate compile_commands.json
 
-    - uses: ZedThree/clang-tidy-review@v0.8.0
+    - uses: ZedThree/clang-tidy-review@v0.10.0
       with:
         split_workflow: true
 
@@ -264,7 +264,7 @@ jobs:
       - name: 'Unzip artifact'
         run: unzip clang-tidy-review.zip
 
-      - uses: ZedThree/clang-tidy-review/post@v0.8.0
+      - uses: ZedThree/clang-tidy-review/post@v0.10.0
 ```
 
 The lint workflow runs with limited permissions, while the post comments workflow has the required permissions because it's triggered by the `workflow_run` event.  
