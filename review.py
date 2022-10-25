@@ -185,7 +185,8 @@ if __name__ == "__main__":
             0
         ].split(",")
         with message_group(f"Installing additional packages: {apt_packages}"):
-            subprocess.run(
+            subprocess.run(["apt-get", "update"])
+            subprocess.run(                
                 ["apt-get", "install", "-y", "--no-install-recommends"] + apt_packages
             )
 
