@@ -112,7 +112,9 @@ class PullRequest:
 
     @property
     def base_url(self):
-        return f"https://api.github.com/repos/{self.repo}/pulls/{self.pr_number}"
+        # read the API url from the environment variable GITHUB_API_URL, if it is not set, use the default value
+        api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+        return f"{api_url}/repos/{self.repo}/pulls/{self.pr_number}"
 
     def get(self, media_type: str, extra: str = "") -> str:
         url = f"{self.base_url}{extra}"
