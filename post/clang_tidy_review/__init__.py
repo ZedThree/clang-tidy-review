@@ -324,6 +324,14 @@ def collate_replacement_sets(diagnostic, offset_lookup):
     # First, make sure each replacement contains "LineNumber", and
     # "EndLineNumber" in case it spans multiple lines
     for replacement in diagnostic["Replacements"]:
+        # Sometimes, the FilePath may include ".." in "." as a path component
+        # However, file paths are stored in the offset table only after being
+        # converted to an abs path, in which case the stored path will differ
+        # from the FilePath and we'll end up looking for a path that's not in
+        # the lookup dict
+        # To fix this, we'll convert all the FilePaths to absolute paths
+        replacement["FilePath"] = os.path.abspath(replacement["FilePath"])
+
         # It's possible the replacement is needed in another file?
         # Not really sure how that could come about, but let's
         # cover our behinds in case it does happen:
