@@ -80,5 +80,6 @@ runs:
     - --exclude='${{ inputs.exclude }}'
     - --apt-packages=${{ inputs.apt_packages }}
     - --cmake-command='${{ inputs.cmake_command }}'
+    - --max-comments=${{ inputs.max_comments }}
     - --lgtm-comment-body='${{ inputs.lgtm_comment_body }}'
     - --split_workflow=${{ inputs.split_workflow }}
