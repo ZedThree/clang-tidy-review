@@ -40,7 +40,6 @@ def main(
     split_workflow: bool,
     dry_run: bool = False,
 ):
-
     pull_request = PullRequest(repo, pr_number, token)
 
     review = create_review(
