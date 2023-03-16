@@ -792,6 +792,16 @@ def strip_enclosing_quotes(string: str) -> str:
     return stripped
 
 
+def set_output(key: str, val: str) -> bool:
+    if "GITHUB_OUTPUT" not in os.environ:
+        return False
+
+    # append key-val pair to file
+    with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+        f.write(f"{key}={val}\n")
+
+    return True
+
 def post_review(
     pull_request: PullRequest,
     review: Optional[PRReview],
@@ -809,9 +819,9 @@ def post_review(
             pull_request.post_lgtm_comment(lgtm_comment_body)
         return 0
 
-    print(f"::set-output name=total_comments::{len(review['comments'])}")
-
     total_comments = len(review["comments"])
+
+    set_output("total_comments", total_comments)
 
     print("Removing already posted or extra comments", flush=True)
     trimmed_review = cull_comments(pull_request, review, max_comments)
