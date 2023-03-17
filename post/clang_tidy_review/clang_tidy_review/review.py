@@ -6,50 +6,22 @@
 # See LICENSE for more information
 
 import argparse
-import json
 import os
-import pathlib
 import re
 import subprocess
 
 from clang_tidy_review import (
     PullRequest,
-    message_group,
-    strip_enclosing_quotes,
     create_review,
-    save_metadata,
+    fix_absolute_paths,
+    message_group,
     post_review,
+    save_metadata,
+    strip_enclosing_quotes,
 )
 
 
 BAD_CHARS_APT_PACKAGES_PATTERN = "[;&|($]"
-
-
-def fix_absolute_paths(build_compile_commands, base_dir):
-    """Update absolute paths in compile_commands.json to new location, if
-    compile_commands.json was created outside the Actions container
-    """
-
-    basedir = pathlib.Path(base_dir).resolve()
-    newbasedir = pathlib.Path(".").resolve()
-
-    if basedir == newbasedir:
-        return
-
-    print(f"Found '{build_compile_commands}', updating absolute paths")
-    # We might need to change some absolute paths if we're inside
-    # a docker container
-    with open(build_compile_commands, "r") as f:
-        compile_commands = json.load(f)
-
-    print(f"Replacing '{basedir}' with '{newbasedir}'", flush=True)
-
-    modified_compile_commands = json.dumps(compile_commands).replace(
-        str(basedir), str(newbasedir)
-    )
-
-    with open(build_compile_commands, "w") as f:
-        f.write(modified_compile_commands)
 
 
 def main():
