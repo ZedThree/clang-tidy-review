@@ -247,7 +247,6 @@ def make_file_offset_lookup(filenames):
 
 
 def get_diagnostic_file_path(clang_tidy_diagnostic, build_dir):
-
     # Sometimes, clang-tidy gives us an absolute path, so everything is fine.
     # Sometimes however it gives us a relative path that is realtive to the
     # build directory, so we prepend that.
@@ -801,6 +800,7 @@ def set_output(key: str, val: str) -> bool:
         f.write(f"{key}={val}\n")
 
     return True
+
 
 def post_review(
     pull_request: PullRequest,
