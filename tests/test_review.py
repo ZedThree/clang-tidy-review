@@ -223,7 +223,7 @@ def test_line_ranges():
 
 
 def test_load_clang_tidy_warnings(monkeypatch):
-    monkeypatch.setattr(ctr, "FIXES_FILE", str(TEST_DIR / "src" / ctr.FIXES_FILE))
+    monkeypatch.setattr(ctr, "FIXES_FILE", str(TEST_DIR / f"src/test_{ctr.FIXES_FILE}"))
 
     warnings = ctr.load_clang_tidy_warnings()
 
