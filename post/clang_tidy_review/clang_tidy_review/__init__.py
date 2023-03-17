@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: MIT
 # See LICENSE for more information
 
-import argparse
 import fnmatch
 import itertools
 import json
@@ -247,7 +246,6 @@ def make_file_offset_lookup(filenames):
 
 
 def get_diagnostic_file_path(clang_tidy_diagnostic, build_dir):
-
     # Sometimes, clang-tidy gives us an absolute path, so everything is fine.
     # Sometimes however it gives us a relative path that is realtive to the
     # build directory, so we prepend that.
@@ -484,6 +482,33 @@ def try_relative(path):
         return pathlib.Path(path).resolve()
 
 
+def fix_absolute_paths(build_compile_commands, base_dir):
+    """Update absolute paths in compile_commands.json to new location, if
+    compile_commands.json was created outside the Actions container
+    """
+
+    basedir = pathlib.Path(base_dir).resolve()
+    newbasedir = pathlib.Path(".").resolve()
+
+    if basedir == newbasedir:
+        return
+
+    print(f"Found '{build_compile_commands}', updating absolute paths")
+    # We might need to change some absolute paths if we're inside
+    # a docker container
+    with open(build_compile_commands, "r") as f:
+        compile_commands = json.load(f)
+
+    print(f"Replacing '{basedir}' with '{newbasedir}'", flush=True)
+
+    modified_compile_commands = json.dumps(compile_commands).replace(
+        str(basedir), str(newbasedir)
+    )
+
+    with open(build_compile_commands, "w") as f:
+        f.write(modified_compile_commands)
+
+
 def format_notes(notes, offset_lookup):
     """Format an array of notes into a single string"""
 
@@ -622,6 +647,19 @@ def create_review_file(
     return review
 
 
+def filter_files(diff, include: List[str], exclude: List[str]) -> List:
+    changed_files = [filename.target_file[2:] for filename in diff]
+    files = []
+    for pattern in include:
+        files.extend(fnmatch.filter(changed_files, pattern))
+        print(f"include: {pattern}, file list now: {files}")
+    for pattern in exclude:
+        files = [f for f in files if not fnmatch.fnmatch(f, pattern)]
+        print(f"exclude: {pattern}, file list now: {files}")
+
+    return files
+
+
 def create_review(
     pull_request: PullRequest,
     build_dir: str,
@@ -639,14 +677,7 @@ def create_review(
     diff = pull_request.get_pr_diff()
     print(f"\nDiff from GitHub PR:\n{diff}\n")
 
-    changed_files = [filename.target_file[2:] for filename in diff]
-    files = []
-    for pattern in include:
-        files.extend(fnmatch.filter(changed_files, pattern))
-        print(f"include: {pattern}, file list now: {files}")
-    for pattern in exclude:
-        files = [f for f in files if not fnmatch.fnmatch(f, pattern)]
-        print(f"exclude: {pattern}, file list now: {files}")
+    files = filter_files(diff, include, exclude)
 
     if files == []:
         print("No files to check!")
@@ -801,6 +832,7 @@ def set_output(key: str, val: str) -> bool:
         f.write(f"{key}={val}\n")
 
     return True
+
 
 def post_review(
     pull_request: PullRequest,

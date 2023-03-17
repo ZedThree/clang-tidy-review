@@ -1,0 +1,108 @@
+---
+MainSourceFile:  '/clang_tidy_review/src/hello.cxx'
+Diagnostics:
+  - DiagnosticName:  readability-const-return-type
+    DiagnosticMessage:
+      Message:         'return type ''const std::string'' (aka ''const basic_string<char>'') is ''const''-qualified at the top level, which may reduce code readability without improving const correctness'
+      FilePath:        '/clang_tidy_review/src/hello.cxx'
+      FileOffset:      41
+      Replacements:
+        - FilePath:        '/clang_tidy_review/src/hello.cxx'
+          Offset:          41
+          Length:          6
+          ReplacementText: ''
+      Ranges:
+        - FilePath:        '/clang_tidy_review/src/hello.cxx'
+          FileOffset:      41
+          Length:          5
+    Level:           Warning
+    BuildDirectory:  '/clang_tidy_review/build'
+  - DiagnosticName:  performance-unnecessary-value-param
+    DiagnosticMessage:
+      Message:         'the parameter ''name'' is copied for each invocation but only used as a const reference; consider making it a const reference'
+      FilePath:        '/clang_tidy_review/src/hello.cxx'
+      FileOffset:      87
+      Replacements:
+        - FilePath:        '/clang_tidy_review/src/hello.cxx'
+          Offset:          75
+          Length:          0
+          ReplacementText: 'const '
+        - FilePath:        '/clang_tidy_review/src/hello.cxx'
+          Offset:          86
+          Length:          0
+          ReplacementText: '&'
+    Level:           Warning
+    BuildDirectory:  '/clang_tidy_review/build'
+  - DiagnosticName:  readability-implicit-bool-conversion
+    DiagnosticMessage:
+      Message:         'implicit conversion ''int'' -> bool'
+      FilePath:        '/clang_tidy_review/src/hello.cxx'
+      FileOffset:      101
+      Replacements:
+        - FilePath:        '/clang_tidy_review/src/hello.cxx'
+          Offset:          122
+          Length:          0
+          ReplacementText: ' != 0'
+    Level:           Warning
+    BuildDirectory:  '/clang_tidy_review/build'
+  - DiagnosticName:  readability-string-compare
+    DiagnosticMessage:
+      Message:         'do not use ''compare'' to test equality of strings; use the string equality operator instead'
+      FilePath:        '/clang_tidy_review/src/hello.cxx'
+      FileOffset:      101
+      Replacements:    []
+    Level:           Warning
+    BuildDirectory:  '/clang_tidy_review/build'
+  - DiagnosticName:  readability-else-after-return
+    DiagnosticMessage:
+      Message:         'do not use ''else'' after ''return'''
+      FilePath:        '/clang_tidy_review/src/hello.cxx'
+      FileOffset:      185
+      Replacements:
+        - FilePath:        '/clang_tidy_review/src/hello.cxx'
+          Offset:          185
+          Length:          5
+          ReplacementText: ''
+        - FilePath:        '/clang_tidy_review/src/hello.cxx'
+          Offset:          190
+          Length:          46
+          ReplacementText: "    return \"I'm so happy to see you!\\n\";\n "
+      Ranges:
+        - FilePath:        '/clang_tidy_review/src/hello.cxx'
+          FileOffset:      185
+          Length:          4
+    Level:           Warning
+    BuildDirectory:  '/clang_tidy_review/build'
+  - DiagnosticName:  readability-const-return-type
+    DiagnosticMessage:
+      Message:         'return type ''const std::string'' (aka ''const basic_string<char>'') is ''const''-qualified at the top level, which may reduce code readability without improving const correctness'
+      FilePath:        '/clang_tidy_review/src/hello.cxx'
+      FileOffset:      240
+      Replacements:
+        - FilePath:        '/clang_tidy_review/src/hello.cxx'
+          Offset:          240
+          Length:          6
+          ReplacementText: ''
+      Ranges:
+        - FilePath:        '/clang_tidy_review/src/hello.cxx'
+          FileOffset:      240
+          Length:          5
+    Level:           Warning
+    BuildDirectory:  '/clang_tidy_review/build'
+  - DiagnosticName:  performance-unnecessary-value-param
+    DiagnosticMessage:
+      Message:         'the parameter ''name'' is copied for each invocation but only used as a const reference; consider making it a const reference'
+      FilePath:        '/clang_tidy_review/src/hello.cxx'
+      FileOffset:      322
+      Replacements:
+        - FilePath:        '/clang_tidy_review/src/hello.cxx'
+          Offset:          310
+          Length:          0
+          ReplacementText: 'const '
+        - FilePath:        '/clang_tidy_review/src/hello.cxx'
+          Offset:          321
+          Length:          0
+          ReplacementText: '&'
+    Level:           Warning
+    BuildDirectory:  '/clang_tidy_review/build'
+...

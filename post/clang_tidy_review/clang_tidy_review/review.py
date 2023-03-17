@@ -6,89 +6,25 @@
 # See LICENSE for more information
 
 import argparse
-import json
 import os
-import pathlib
 import re
 import subprocess
 
-from post.clang_tidy_review import (
+from clang_tidy_review import (
     PullRequest,
-    message_group,
-    strip_enclosing_quotes,
     create_review,
-    save_metadata,
+    fix_absolute_paths,
+    message_group,
     post_review,
+    save_metadata,
+    strip_enclosing_quotes,
 )
 
 
 BAD_CHARS_APT_PACKAGES_PATTERN = "[;&|($]"
 
 
-def main(
-    repo,
-    pr_number,
-    build_dir,
-    clang_tidy_checks,
-    clang_tidy_binary,
-    config_file,
-    token,
-    include,
-    exclude,
-    max_comments,
-    lgtm_comment_body,
-    split_workflow: bool,
-    dry_run: bool = False,
-):
-    pull_request = PullRequest(repo, pr_number, token)
-
-    review = create_review(
-        pull_request,
-        build_dir,
-        clang_tidy_checks,
-        clang_tidy_binary,
-        config_file,
-        include,
-        exclude,
-    )
-
-    with message_group("Saving metadata"):
-        save_metadata(pr_number)
-
-    if split_workflow:
-        print("split_workflow is enabled, not posting review")
-    else:
-        post_review(pull_request, review, max_comments, lgtm_comment_body, dry_run)
-
-
-def fix_absolute_paths(build_compile_commands, base_dir):
-    """Update absolute paths in compile_commands.json to new location, if
-    compile_commands.json was created outside the Actions container
-    """
-
-    basedir = pathlib.Path(base_dir).resolve()
-    newbasedir = pathlib.Path(".").resolve()
-
-    if basedir == newbasedir:
-        return
-
-    print(f"Found '{build_compile_commands}', updating absolute paths")
-    # We might need to change some absolute paths if we're inside
-    # a docker container
-    with open(build_compile_commands, "r") as f:
-        compile_commands = json.load(f)
-
-    print(f"Replacing '{basedir}' with '{newbasedir}'", flush=True)
-
-    modified_compile_commands = json.dumps(compile_commands).replace(
-        str(basedir), str(newbasedir)
-    )
-
-    with open(build_compile_commands, "w") as f:
-        f.write(modified_compile_commands)
-
-
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(
         description="Create a review from clang-tidy warnings"
     )
@@ -163,7 +99,10 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--split_workflow",
-        help="Only generate but don't post the review, leaving it for the second workflow. Relevant when receiving PRs from forks that don't have the required permissions to post reviews.",
+        help=(
+            "Only generate but don't post the review, leaving it for the second workflow. "
+            "Relevant when receiving PRs from forks that don't have the required permissions to post reviews."
+        ),
         type=bool_argument,
         default=False,
     )
@@ -202,18 +141,29 @@ if __name__ == "__main__":
     elif os.path.exists(build_compile_commands):
         fix_absolute_paths(build_compile_commands, args.base_dir)
 
-    main(
-        repo=args.repo,
-        pr_number=args.pr,
-        build_dir=args.build_dir,
-        clang_tidy_checks=args.clang_tidy_checks,
-        clang_tidy_binary=args.clang_tidy_binary,
-        config_file=args.config_file,
-        token=args.token,
-        include=include,
-        exclude=exclude,
-        max_comments=args.max_comments,
-        lgtm_comment_body=strip_enclosing_quotes(args.lgtm_comment_body),
-        split_workflow=args.split_workflow,
-        dry_run=args.dry_run,
+    pull_request = PullRequest(args.repo, args.pr, args.token)
+
+    review = create_review(
+        pull_request,
+        args.build_dir,
+        args.clang_tidy_checks,
+        args.clang_tidy_binary,
+        args.config_file,
+        include,
+        exclude,
     )
+
+    with message_group("Saving metadata"):
+        save_metadata(args.pr)
+
+    if args.split_workflow:
+        print("split_workflow is enabled, not posting review")
+    else:
+        lgtm_comment_body = strip_enclosing_quotes(args.lgtm_comment_body)
+        post_review(
+            pull_request, review, args.max_comments, lgtm_comment_body, args.dry_run
+        )
+
+
+if __name__ == "__main__":
+    main()
