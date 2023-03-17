@@ -12,7 +12,7 @@ import pathlib
 import re
 import subprocess
 
-from post.clang_tidy_review import (
+from clang_tidy_review import (
     PullRequest,
     message_group,
     strip_enclosing_quotes,

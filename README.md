@@ -267,8 +267,44 @@ jobs:
       - uses: ZedThree/clang-tidy-review/post@v0.10.0
 ```
 
-The lint workflow runs with limited permissions, while the post comments workflow has the required permissions because it's triggered by the `workflow_run` event.  
-Read more about workflow security limitations [here](https://securitylab.github.com/research/github-actions-preventing-pwn-requests/).
+The lint workflow runs with limited permissions, while the post
+comments workflow has the required permissions because it's triggered
+by the `workflow_run` event.
+
+Read more about workflow security limitations
+[here](https://securitylab.github.com/research/github-actions-preventing-pwn-requests/).
+
+## Project layout
+
+This project is laid out as follows:
+
+```
+.
+├── action.yml       # The `review` Action
+├── Dockerfile
+└── post
+    ├── action.yml   # The `post` Action
+    ├── Dockerfile
+    └── clang_tidy_review      # Common python package
+        └── clang_tidy_review
+            ├── __init__.py
+            ├── post.py        # Entry point for `post`
+            └── review.py      # Entry point for `review`
+```
+
+In order to accommodate the split workflow, the `review` and `post`
+actions must have their own Action metadata files. GitHub requires
+this file to be named exactly `action.yml`, so they have to be in
+separate directories. The associated `Dockerfile`s must also be named
+exactly `Dockerfile`, so they also have to be separate directories.
+
+Lastly, we want to be able to reuse the python package between the two
+Actions, which means it must be in a subdirectory of _both_
+`Dockerfile`s because they can't see parent directories.
+
+Which is why we've ended up with this slightly strange structure! This
+way, we can `COPY` the python package into both Docker images.
+
 
 ## Real world project samples
 |Project|Workflow|

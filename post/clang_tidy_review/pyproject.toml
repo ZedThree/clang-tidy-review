@@ -1,0 +1,42 @@
+[build-system]
+requires = [
+    "setuptools >= 65",
+    "setuptools_scm[toml] >= 6.2",
+    "wheel >= 0.29.0",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clang-tidy-review"
+description = "Run clang-tidy as a GitHub action and automatically post warnings as comments"
+readme = "README.md"
+authors = [{name = "Peter Hill", email = "peter.hill@york.ac.uk"}]
+license = {text = "MIT"}
+dependencies = [
+    "PyGithub ~= 1.51",
+    "unidiff ~= 0.6.0",
+    "requests ~= 2.23",
+    "pyyaml ~= 5.4",
+]
+keywords = ["C++", "static-analysis"]
+dynamic = ["version"]
+
+[project.urls]
+source = "https://github.com/ZedThree/clang-tidy-review"
+tracker = "https://github.com/ZedThree/clang-tidy-review/issues"
+
+[project.scripts]
+review = "clang_tidy_review.review:main"
+post = "clang_tidy_review.post:main"
+
+[project.optional-dependencies]
+tests = [
+    "pytest >= 3.3.0",
+]
+
+[tool.setuptools]
+packages = ["clang_tidy_review"]
+
+[tool.setuptools_scm]
+root = "../.."
+fallback_version = "0.0.0-dev"

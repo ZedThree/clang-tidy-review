@@ -1,13 +1,8 @@
 FROM python:3
 
-COPY requirements.txt /requirements.txt
+COPY clang_tidy_review /clang_tidy_review
 
 RUN pip3 install --upgrade pip && \
-    pip3 install -r requirements.txt
+    pip3 install /clang_tidy_review
 
-WORKDIR /action
-
-COPY post.py /action/post.py
-COPY clang_tidy_review /action/clang_tidy_review
-
-ENTRYPOINT ["/action/post.py"]
+ENTRYPOINT ["post"]
