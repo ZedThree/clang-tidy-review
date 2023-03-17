@@ -647,6 +647,19 @@ def create_review_file(
     return review
 
 
+def filter_files(diff, include: List[str], exclude: List[str]) -> List:
+    changed_files = [filename.target_file[2:] for filename in diff]
+    files = []
+    for pattern in include:
+        files.extend(fnmatch.filter(changed_files, pattern))
+        print(f"include: {pattern}, file list now: {files}")
+    for pattern in exclude:
+        files = [f for f in files if not fnmatch.fnmatch(f, pattern)]
+        print(f"exclude: {pattern}, file list now: {files}")
+
+    return files
+
+
 def create_review(
     pull_request: PullRequest,
     build_dir: str,
@@ -664,14 +677,7 @@ def create_review(
     diff = pull_request.get_pr_diff()
     print(f"\nDiff from GitHub PR:\n{diff}\n")
 
-    changed_files = [filename.target_file[2:] for filename in diff]
-    files = []
-    for pattern in include:
-        files.extend(fnmatch.filter(changed_files, pattern))
-        print(f"include: {pattern}, file list now: {files}")
-    for pattern in exclude:
-        files = [f for f in files if not fnmatch.fnmatch(f, pattern)]
-        print(f"exclude: {pattern}, file list now: {files}")
+    files = filter_files(diff, include, exclude)
 
     if files == []:
         print("No files to check!")
