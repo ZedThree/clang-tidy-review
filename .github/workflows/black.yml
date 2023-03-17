@@ -28,7 +28,7 @@ jobs:
         black --version
     - name: Run black
       run: |
-        black review.py
+        black .
     - uses: stefanzweifel/git-auto-commit-action@v4
       with:
         commit_message: "Apply black changes"
