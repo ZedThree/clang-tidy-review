@@ -87,6 +87,19 @@ TEST_DIAGNOSTIC = {
 }
 
 
+class MockClangTidyVersionProcess:
+    """Mock out subprocess call to clang-tidy --version"""
+
+    def __init__(self, version: int):
+        self.stdout = f"""\
+LLVM (http://llvm.org/):
+  LLVM version {version}.1.7
+  Optimized build.
+  Default target: x86_64
+  Host CPU: skylake
+        """
+
+
 def test_message_group(capsys):
     with ctr.message_group("some_title"):
         print("message body")
@@ -292,3 +305,46 @@ def test_make_comment():
     )
     assert comment == expected_comment
     assert end_line == 5
+
+
+def test_version(monkeypatch):
+    # Mock out the actual call so this test doesn't depend on a
+    # particular version of clang-tidy being installed
+    expected_version = 42
+    monkeypatch.setattr(
+        ctr.subprocess,
+        "run",
+        lambda *args, **kwargs: MockClangTidyVersionProcess(expected_version),
+    )
+
+    version = ctr.clang_tidy_version("not-clang-tidy")
+    assert version == expected_version
+
+
+def test_config_file(monkeypatch, tmp_path):
+    # Mock out the actual call so this test doesn't depend on a
+    # particular version of clang-tidy being installed
+    monkeypatch.setattr(
+        ctr.subprocess, "run", lambda *args, **kwargs: MockClangTidyVersionProcess(12)
+    )
+
+    config_file = tmp_path / ".clang-tidy"
+    config_file.touch()
+
+    flag = ctr.config_file_or_checks("not-clang-tidy", "readability", str(config_file))
+    assert flag == f'--config-file="{config_file}"'
+
+    os.chdir(tmp_path)
+    flag = ctr.config_file_or_checks("not-clang-tidy", "readability", "")
+    assert flag == '--config-file=".clang-tidy"'
+
+    monkeypatch.setattr(
+        ctr.subprocess, "run", lambda *args, **kwargs: MockClangTidyVersionProcess(11)
+    )
+    flag = ctr.config_file_or_checks("not-clang-tidy", "readability", "")
+    assert flag == "--config"
+
+    config_file.unlink()
+
+    flag = ctr.config_file_or_checks("not-clang-tidy", "readability", "")
+    assert flag == "--checks=readability"

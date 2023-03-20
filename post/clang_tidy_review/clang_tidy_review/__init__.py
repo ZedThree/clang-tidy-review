@@ -17,6 +17,7 @@ import unidiff
 import yaml
 import contextlib
 import datetime
+import re
 from github import Github
 from github.Requester import Requester
 from github.PaginatedList import PaginatedList
@@ -58,10 +59,7 @@ def build_clang_tidy_warnings(
 ) -> None:
     """Run clang-tidy on the given files and save output into FIXES_FILE"""
 
-    if config_file != "":
-        config = f'-config-file="{config_file}"'
-    else:
-        config = f"-checks={clang_tidy_checks}"
+    config = config_file_or_checks(clang_tidy_binary, clang_tidy_checks, config_file)
 
     print(f"Using config: {config}")
 
@@ -80,6 +78,56 @@ def build_clang_tidy_warnings(
     end = datetime.datetime.now()
 
     print(f"Took: {end - start}")
+
+
+def clang_tidy_version(clang_tidy_binary: str):
+    try:
+        version_out = subprocess.run(
+            f"{clang_tidy_binary} --version",
+            capture_output=True,
+            shell=True,
+            check=True,
+            text=True,
+        ).stdout
+    except subprocess.CalledProcessError as e:
+        print(f"\n\nWARNING: Couldn't get clang-tidy version, error was: {e}")
+        return 0
+
+    if version := re.search(r"version (\d+)", version_out):
+        return int(version.group(1))
+
+    print(
+        f"\n\nWARNING: Couldn't get clang-tidy version number, '{clang_tidy_binary} --version' reported: {version_out}"
+    )
+    return 0
+
+
+def config_file_or_checks(
+    clang_tidy_binary: str, clang_tidy_checks: str, config_file: str
+):
+    version = clang_tidy_version(clang_tidy_binary)
+
+    # If config_file is set, use that
+    if config_file == "":
+        if pathlib.Path(".clang-tidy").exists():
+            config_file = ".clang-tidy"
+    elif not pathlib.Path(config_file).exists():
+        print(f"WARNING: Could not find specified config file '{config_file}'")
+        config_file = ""
+
+    if not config_file:
+        return f"--checks={clang_tidy_checks}"
+
+    if version >= 12:
+        return f'--config-file="{config_file}"'
+
+    if config_file != ".clang-tidy":
+        print(
+            f"\n\nWARNING: non-default config file name '{config_file}' will be ignored for "
+            "selected clang-tidy version {version}. This version expects exactly '.clang-tidy'\n"
+        )
+
+    return "--config"
 
 
 def load_clang_tidy_warnings():
