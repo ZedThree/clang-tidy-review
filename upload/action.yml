@@ -1,0 +1,16 @@
+name: 'clang-tidy review - upload artefacts'
+author: 'Peter Hill'
+description: 'Upload artefacts created from a clang-tidy-review run'
+branding:
+  icon: 'book-open'
+  color: 'red'
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/upload-artifact@v3
+      with:
+        name: clang-tidy-review
+        path: |
+          clang-tidy-review-output.json
+          clang-tidy-review-metadata.json
+          clang_fixes.json

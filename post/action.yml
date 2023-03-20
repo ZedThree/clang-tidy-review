@@ -19,6 +19,12 @@ inputs:
     description: 'Message to post on PR if no issues are found. An empty string will post no LGTM comment.'
     required: false
     default: 'clang-tidy review says "All clean, LGTM! :+1:"'
+  workflow_id:
+    description: 'ID of the review workflow'
+    default: ${{ github.event.workflow_run.id }}
+  pr_number:
+    description: 'PR number of the review workflow'
+    default: ${{ github.event.workflow_run.pull_requests[0].number }}
 outputs:
   total_comments:
     description: 'Total number of warnings from clang-tidy'
@@ -30,3 +36,5 @@ runs:
     - --repo=${{ inputs.repo }}
     - --max-comments=${{ inputs.max_comments }}
     - --lgtm-comment-body='${{ inputs.lgtm_comment_body }}'
+    - --workflow_id=${{ inputs.workflow_id }}
+    - --pr_number=${{ inputs.pr_number }}

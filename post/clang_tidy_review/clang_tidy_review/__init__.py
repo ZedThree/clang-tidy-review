@@ -18,9 +18,12 @@ import yaml
 import contextlib
 import datetime
 import re
+import io
+import zipfile
 from github import Github
 from github.Requester import Requester
 from github.PaginatedList import PaginatedList
+from github.WorkflowRun import WorkflowRun
 from typing import List, Optional, TypedDict
 
 DIFF_HEADER_LINE_LENGTH = 5
@@ -160,7 +163,7 @@ class PullRequest:
             if self.pr_number is None:
                 raise RuntimeError("Missing PR number")
 
-            self._pull_request = self.repo.get_pull(self.pr_number)
+            self._pull_request = self.repo.get_pull(int(self.pr_number))
         return self._pull_request
 
     def headers(self, media_type: str):
@@ -781,11 +784,48 @@ def create_review(
         return review
 
 
+def download_artifacts(pull: PullRequest, workflow_id: int):
+    """Attempt to automatically download the artifacts from a previous
+    run of the review Action"""
+
+    # workflow id is an input: ${{github.event.workflow_run.id }}
+    workflow: WorkflowRun = pull.repo.get_workflow_run(workflow_id)
+    # I don't understand why mypy complains about the next line!
+    for artifact in workflow.get_artifacts():
+        if artifact.name == "clang-tidy-review":
+            break
+    else:
+        # Didn't find the artefact, so bail
+        print(
+            f"Couldn't find 'clang-tidy-review' artifact for workflow '{workflow_id}'. "
+            "Available artifacts are: {list(workflow.get_artifacts())}"
+        )
+        return None, None
+
+    r = requests.get(artifact.archive_download_url, headers=pull.headers("json"))
+    if not r.ok:
+        print(
+            f"WARNING: Couldn't automatically download artifacts for workflow '{workflow_id}', response was: {r}: {r.reason}"
+        )
+        return None, None
+
+    contents = b"".join(r.iter_content())
+
+    data = zipfile.ZipFile(io.BytesIO(contents))
+    filenames = data.namelist()
+
+    metadata = (
+        json.loads(data.read(METADATA_FILE)) if METADATA_FILE in filenames else None
+    )
+    review = json.loads(data.read(REVIEW_FILE)) if REVIEW_FILE in filenames else None
+    return metadata, review
+
+
 def load_metadata() -> Optional[Metadata]:
     """Load metadata from the METADATA_FILE path"""
 
     if not pathlib.Path(METADATA_FILE).exists():
-        print(f"\n\nWARNING: Could not find metadata file ('{METADATA_FILE}'), ")
+        print(f"WARNING: Could not find metadata file ('{METADATA_FILE}')", flush=True)
         return None
 
     with open(METADATA_FILE, "r") as metadata_file:
@@ -808,7 +848,7 @@ def load_review() -> Optional[PRReview]:
     """
 
     if not pathlib.Path(REVIEW_FILE).exists():
-        print(f"\n\nWARNING: Could not find review file ('{REVIEW_FILE}'), ")
+        print(f"WARNING: Could not find review file ('{REVIEW_FILE}')", flush=True)
         return None
 
     with open(REVIEW_FILE, "r") as review_file:

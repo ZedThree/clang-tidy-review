@@ -14,6 +14,7 @@ from clang_tidy_review import (
     post_review,
     load_metadata,
     strip_enclosing_quotes,
+    download_artifacts,
 )
 
 
@@ -39,13 +40,38 @@ def main():
     parser.add_argument(
         "--dry-run", help="Run and generate review, but don't post", action="store_true"
     )
+    parser.add_argument(
+        "--workflow_id",
+        help="ID of the workflow that generated the review",
+        default=None,
+    )
+    parser.add_argument("--pr_number", help="PR number", default=None)
 
     args = parser.parse_args()
 
-    metadata = load_metadata()
-    pull_request = PullRequest(args.repo, metadata["pr_number"], args.token)
+    pull_request = PullRequest(args.repo, args.pr_number, args.token)
 
+    # Try to read the review artifacts if they're already present
+    metadata = load_metadata()
     review = load_review()
+
+    # If not, try to download them automatically
+    if metadata is None and args.workflow_id is not None:
+        print("Attempting to automatically download review artifacts", flush=True)
+        metadata, review = download_artifacts(pull_request, int(args.workflow_id))
+
+    if metadata is None:
+        raise RuntimeError("Couldn't find review metadata")
+
+    if args.pr_number is not None and int(args.pr_number) != int(metadata["pr_number"]):
+        raise RuntimeError(
+            f"Conflicting PR numbers: Action was passed #{args.pr_number} "
+            f"and metadata from previous run has #{metadata['pr_number']}"
+        )
+
+    if args.pr_number is None:
+        pull_request.pr_number = metadata["pr_number"]
+
     print(
         "clang-tidy-review generated the following review",
         pprint.pformat(review, width=130),
