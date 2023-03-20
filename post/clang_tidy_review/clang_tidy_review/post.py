@@ -15,6 +15,8 @@ from clang_tidy_review import (
     load_metadata,
     strip_enclosing_quotes,
     download_artifacts,
+    post_annotations,
+    bool_argument,
 )
 
 
@@ -44,6 +46,12 @@ def main():
         "--workflow_id",
         help="ID of the workflow that generated the review",
         default=None,
+    )
+    parser.add_argument(
+        "--annotations",
+        help="Use annotations instead of comments",
+        type=bool_argument,
+        default=False,
     )
     parser.add_argument("--pr_number", help="PR number", default=None)
 
@@ -78,10 +86,13 @@ def main():
         flush=True,
     )
 
-    lgtm_comment_body = strip_enclosing_quotes(args.lgtm_comment_body)
-    post_review(
-        pull_request, review, args.max_comments, lgtm_comment_body, args.dry_run
-    )
+    if args.annotations:
+        post_annotations(pull_request, review)
+    else:
+        lgtm_comment_body = strip_enclosing_quotes(args.lgtm_comment_body)
+        post_review(
+            pull_request, review, args.max_comments, lgtm_comment_body, args.dry_run
+        )
 
 
 if __name__ == "__main__":
