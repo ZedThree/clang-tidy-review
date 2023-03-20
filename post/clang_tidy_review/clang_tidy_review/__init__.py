@@ -147,6 +147,9 @@ class PullRequest:
         self.pr_number = pr_number
         self.token = token
 
+        # Choose API URL, default to public GitHub
+        self.api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+
         github = Github(token)
         repo_object = github.get_repo(f"{repo}")
         self._pull_request = repo_object.get_pull(pr_number)
@@ -159,9 +162,7 @@ class PullRequest:
 
     @property
     def base_url(self):
-        # read the API url from the environment variable GITHUB_API_URL, if it is not set, use the default value
-        api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com")
-        return f"{api_url}/repos/{self.repo}/pulls/{self.pr_number}"
+        return f"{self.api_url}/repos/{self.repo_name}/pulls/{self.pr_number}"
 
     def get(self, media_type: str, extra: str = "") -> str:
         url = f"{self.base_url}{extra}"
