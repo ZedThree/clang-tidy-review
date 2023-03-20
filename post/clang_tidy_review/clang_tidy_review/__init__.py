@@ -583,6 +583,9 @@ def format_notes(notes, offset_lookup):
         code = format_ordinary_line(source_line, line_offset)
         code_blocks += f"{message}\n{code}"
 
+    if notes:
+        code_blocks = f"<details>\n<summary>Additional context</summary>\n\n{code_blocks}\n</details>\n"
+
     return code_blocks
 
 

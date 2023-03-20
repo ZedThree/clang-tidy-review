@@ -307,6 +307,80 @@ def test_make_comment():
     assert end_line == 5
 
 
+def test_format_notes():
+    message = ctr.format_notes([], TEST_OFFSET_LOOKUP)
+    assert message == ""
+
+    notes = [
+        {"Message": "Test message 1", "FilePath": str(TEST_FILE), "FileOffset": 42},
+        {"Message": "Test message 2", "FilePath": str(TEST_FILE), "FileOffset": 98},
+    ]
+
+    # Make sure we're in the test directory so the relative paths work
+    os.chdir(TEST_DIR)
+    message = ctr.format_notes(notes, TEST_OFFSET_LOOKUP)
+
+    assert message == textwrap.dedent(
+        """\
+    <details>
+    <summary>Additional context</summary>
+
+    **src/hello.cxx:4:** Test message 1
+    ```cpp
+    const std::string selective_hello(std::string name) {
+     ^
+    ```
+    **src/hello.cxx:5:** Test message 2
+    ```cpp
+      if (name.compare("Peter")) {
+       ^
+    ```
+
+    </details>
+        """
+    )
+
+
+def test_make_comment_with_notes():
+    comment, end_line = ctr.make_comment_from_diagnostic(
+        "readability-const-return-type",
+        TEST_DIAGNOSTIC,
+        str(TEST_FILE),
+        TEST_OFFSET_LOOKUP,
+        [
+            {"Message": "Test message 1", "FilePath": str(TEST_FILE), "FileOffset": 42},
+            {"Message": "Test message 2", "FilePath": str(TEST_FILE), "FileOffset": 98},
+        ],
+    )
+
+    expected_comment = textwrap.dedent(
+        """\
+        warning: return type 'const std::string' (aka 'const basic_string<char>') is 'const'-qualified at the top level, which may reduce code readability without improving const correctness [readability-const-return-type]
+
+        ```suggestion
+        std::string selective_hello(std::string name) {
+        ```
+        <details>
+        <summary>Additional context</summary>
+
+        **src/hello.cxx:4:** Test message 1
+        ```cpp
+        const std::string selective_hello(std::string name) {
+         ^
+        ```
+        **src/hello.cxx:5:** Test message 2
+        ```cpp
+          if (name.compare("Peter")) {
+           ^
+        ```
+
+        </details>
+        """  # noqa: E501
+    )
+    assert comment == expected_comment
+    assert end_line == 5
+
+
 def test_version(monkeypatch):
     # Mock out the actual call so this test doesn't depend on a
     # particular version of clang-tidy being installed
