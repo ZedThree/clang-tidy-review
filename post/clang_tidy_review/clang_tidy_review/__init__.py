@@ -142,8 +142,8 @@ def load_clang_tidy_warnings():
 class PullRequest:
     """Add some convenience functions not in PyGithub"""
 
-    def __init__(self, repo: str, pr_number: int, token: str) -> None:
-        self.repo = repo
+    def __init__(self, repo: str, pr_number: Optional[int], token: str) -> None:
+        self.repo_name = repo
         self.pr_number = pr_number
         self.token = token
 
@@ -151,8 +151,17 @@ class PullRequest:
         self.api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com")
 
         github = Github(token)
-        repo_object = github.get_repo(f"{repo}")
-        self._pull_request = repo_object.get_pull(pr_number)
+        self.repo = github.get_repo(f"{repo}")
+        self._pull_request = None
+
+    @property
+    def pull_request(self):
+        if self._pull_request is None:
+            if self.pr_number is None:
+                raise RuntimeError("Missing PR number")
+
+            self._pull_request = self.repo.get_pull(self.pr_number)
+        return self._pull_request
 
     def headers(self, media_type: str):
         return {
@@ -194,7 +203,7 @@ class PullRequest:
 
         return PaginatedList(
             get_element,
-            self._pull_request._requester,
+            self.pull_request._requester,
             f"{self.base_url}/comments",
             None,
         )
@@ -212,7 +221,7 @@ class PullRequest:
                 print("Already posted, no need to update")
                 return
 
-        self._pull_request.create_issue_comment(body)
+        self.pull_request.create_issue_comment(body)
 
     def post_review(self, review):
         """Submit a completed review"""
