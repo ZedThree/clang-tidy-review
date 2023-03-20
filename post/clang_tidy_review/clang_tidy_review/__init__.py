@@ -781,8 +781,12 @@ def create_review(
         return review
 
 
-def load_metadata() -> Metadata:
+def load_metadata() -> Optional[Metadata]:
     """Load metadata from the METADATA_FILE path"""
+
+    if not pathlib.Path(METADATA_FILE).exists():
+        print(f"\n\nWARNING: Could not find metadata file ('{METADATA_FILE}'), ")
+        return None
 
     with open(METADATA_FILE, "r") as metadata_file:
         return json.load(metadata_file)
@@ -803,12 +807,13 @@ def load_review() -> Optional[PRReview]:
 
     """
 
+    if not pathlib.Path(REVIEW_FILE).exists():
+        print(f"\n\nWARNING: Could not find review file ('{REVIEW_FILE}'), ")
+        return None
+
     with open(REVIEW_FILE, "r") as review_file:
         payload = json.load(review_file)
-        if payload:
-            return payload
-
-        return None
+        return payload or None
 
 
 def get_line_ranges(diff, files):
