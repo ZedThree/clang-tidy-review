@@ -36,7 +36,7 @@ jobs:
 
     # Optionally generate compile_commands.json
 
-    - uses: ZedThree/clang-tidy-review@v0.10.0
+    - uses: ZedThree/clang-tidy-review@v0.12.0
       id: review
     # If there are any comments, fail the check
     - if: steps.review.outputs.total_comments > 0
@@ -78,12 +78,13 @@ at once, so `clang-tidy-review` will only attempt to post the first
 - `base_dir`: Absolute path to initial working directory
   `GITHUB_WORKSPACE`.
   - default: `GITHUB_WORKSPACE`
-- `clang_tidy_version`: Version of clang-tidy to use; one of 6.0, 7, 8, 9, 10, 11
-  - default: '11'
+- `clang_tidy_version`: Version of clang-tidy to use; one of 11, 12,
+  13, 14
+  - default: '14'
 - `clang_tidy_checks`: List of checks
   - default: `'-*,performance-*,readability-*,bugprone-*,clang-analyzer-*,cppcoreguidelines-*,mpi-*,misc-*'`
-- `config_file`: Path to clang-tidy config file, replaces `clang_tidy_checks`. Example for a .clang-tidy file at the root of the repo: `config_file: '.clang-tidy'`
-  - default: ''
+- `config_file`: Path to clang-tidy config file, replaces `clang_tidy_checks`
+  - default: `.clang-tidy` if it already exists, otherwise ''
 - `include`: Comma-separated list of files or patterns to include
   - default: `"*.[ch],*.[ch]xx,*.[ch]pp,*.[ch]++,*.cc,*.hh"`
 - `exclude`: Comma-separated list of files or patterns to exclude
@@ -96,9 +97,12 @@ at once, so `clang-tidy-review` will only attempt to post the first
   - default: ''
 - `max_comments`: Maximum number of comments to post at once
   - default: '25'
-- `lgtm_comment_body`: Message to post on PR if no issues are found. An empty string will post no LGTM comment.
+- `lgtm_comment_body`: Message to post on PR if no issues are
+  found. An empty string will post no LGTM comment.
   - default: 'clang-tidy review says "All clean, LGTM! :+1:"'
-- `split_workflow`: Only generate but don't post the review, leaving it for the second workflow. Relevant when receiving PRs from forks that don't have the required permissions to post reviews.
+- `split_workflow`: Only generate but don't post the review, leaving
+  it for the second workflow. Relevant when receiving PRs from forks
+  that don't have the required permissions to post reviews.
   - default: false
 
 ## Outputs
@@ -128,7 +132,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - uses: ZedThree/clang-tidy-review@v0.10.0
+    - uses: ZedThree/clang-tidy-review@v0.12.0
       id: review
       with:
         # List of packages to install
@@ -181,7 +185,7 @@ jobs:
     - name: Set base_dir
       run: echo "base_dir=$(pwd)" >> $GITHUB_ENV
 
-    - uses: ZedThree/clang-tidy-review@v0.10.0
+    - uses: ZedThree/clang-tidy-review@v0.12.0
       id: review
       with:
         # Tell clang-tidy-review the base directory.
@@ -211,7 +215,7 @@ jobs:
 
     # Optionally generate compile_commands.json
 
-    - uses: ZedThree/clang-tidy-review@v0.10.0
+    - uses: ZedThree/clang-tidy-review@v0.12.0
       with:
         split_workflow: true
 
@@ -264,7 +268,7 @@ jobs:
       - name: 'Unzip artifact'
         run: unzip clang-tidy-review.zip
 
-      - uses: ZedThree/clang-tidy-review/post@v0.10.0
+      - uses: ZedThree/clang-tidy-review/post@v0.12.0
 ```
 
 The lint workflow runs with limited permissions, while the post
