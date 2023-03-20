@@ -57,6 +57,10 @@ inputs:
     description: "Only generate but don't post the review, leaving it for the second workflow. Relevant when receiving PRs from forks that don't have the required permissions to post reviews."
     required: false
     default: false
+  annotations:
+    description: "Use annotations instead of comments. See README for limitations on annotations"
+    required: false
+    default: false
   pr:
     default: ${{ github.event.pull_request.number }}
   repo:
@@ -83,3 +87,4 @@ runs:
     - --max-comments=${{ inputs.max_comments }}
     - --lgtm-comment-body='${{ inputs.lgtm_comment_body }}'
     - --split_workflow=${{ inputs.split_workflow }}
+    - --annotations=${{ inputs.annotations }}

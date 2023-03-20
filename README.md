@@ -114,6 +114,9 @@ at once, so `clang-tidy-review` will only attempt to post the first
   it for the second workflow. Relevant when receiving PRs from forks
   that don't have the required permissions to post reviews.
   - default: false
+- `annotations`: Use Annotations instead of comments. A maximum of 10
+  annotations can be written fully, the rest will be summarised. This is a
+  limitation of the GitHub API.
 
 ## Outputs
 

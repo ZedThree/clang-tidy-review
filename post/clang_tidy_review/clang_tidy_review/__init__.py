@@ -30,6 +30,7 @@ DIFF_HEADER_LINE_LENGTH = 5
 FIXES_FILE = "clang_tidy_review.yaml"
 METADATA_FILE = "clang-tidy-review-metadata.json"
 REVIEW_FILE = "clang-tidy-review-output.json"
+MAX_ANNOTATIONS = 10
 
 
 class Metadata(TypedDict):
@@ -253,6 +254,16 @@ class PullRequest:
 
             # Re-raise the exception, causing an error in the workflow
             raise e
+
+    def post_annotations(self, review):
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {self.token}",
+        }
+        url = f"{self.api_url}/repos/{self.repo_name}/check-runs"
+
+        response = requests.post(url, json=review, headers=headers)
+        response.raise_for_status()
 
 
 @contextlib.contextmanager
@@ -976,3 +987,64 @@ def post_review(
     pull_request.post_review(trimmed_review)
 
     return total_comments
+
+
+def convert_comment_to_annotations(comment):
+    return {
+        "path": comment["path"],
+        "start_line": comment.get("start_line", comment["line"]),
+        "end_line": comment["line"],
+        "annotation_level": "warning",
+        "title": "clang-tidy",
+        "message": comment["body"],
+    }
+
+
+def post_annotations(pull_request: PullRequest, review: Optional[PRReview]):
+    """Post the first 10 comments in the review as annotations"""
+
+    body = {
+        "name": "clang-tidy-review",
+        "head_sha": pull_request.pull_request.head.sha,
+        "status": "completed",
+        "conclusion": "success",
+    }
+
+    if review is None:
+        return
+
+    if review["comments"] == []:
+        print("No warnings to report, LGTM!")
+        pull_request.post_annotations(body)
+
+    comments = []
+    for comment in review["comments"]:
+        first_line = comment["body"].splitlines()[0]
+        comments.append(
+            f"{comment['path']}:{comment.get('start_line', comment['line'])}: {first_line}"
+        )
+
+    total_comments = len(review["comments"])
+
+    body["conclusion"] = "neutral"
+    body["output"] = {
+        "title": "clang-tidy-review",
+        "summary": f"There were {total_comments} warnings",
+        "text": "\n".join(comments),
+        "annotations": [
+            convert_comment_to_annotations(comment)
+            for comment in review["comments"][:MAX_ANNOTATIONS]
+        ],
+    }
+
+    pull_request.post_annotations(body)
+
+
+def bool_argument(user_input) -> bool:
+    """Convert text to bool"""
+    user_input = str(user_input).upper()
+    if user_input == "TRUE":
+        return True
+    if user_input == "FALSE":
+        return False
+    raise ValueError("Invalid value passed to bool_argument")

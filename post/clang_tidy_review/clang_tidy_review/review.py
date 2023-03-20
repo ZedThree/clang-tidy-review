@@ -18,6 +18,8 @@ from clang_tidy_review import (
     post_review,
     save_metadata,
     strip_enclosing_quotes,
+    post_annotations,
+    bool_argument,
 )
 
 
@@ -76,15 +78,6 @@ def main():
         type=str,
         default="",
     )
-
-    def bool_argument(user_input):
-        user_input = str(user_input).upper()
-        if user_input == "TRUE":
-            return True
-        if user_input == "FALSE":
-            return False
-        raise ValueError("Invalid value passed to bool_argument")
-
     parser.add_argument(
         "--max-comments",
         help="Maximum number of comments to post at once",
@@ -103,6 +96,12 @@ def main():
             "Only generate but don't post the review, leaving it for the second workflow. "
             "Relevant when receiving PRs from forks that don't have the required permissions to post reviews."
         ),
+        type=bool_argument,
+        default=False,
+    )
+    parser.add_argument(
+        "--annotations",
+        help="Use annotations instead of comments",
         type=bool_argument,
         default=False,
     )
@@ -158,6 +157,10 @@ def main():
 
     if args.split_workflow:
         print("split_workflow is enabled, not posting review")
+        return
+
+    if args.annotations:
+        post_annotations(pull_request, review)
     else:
         lgtm_comment_body = strip_enclosing_quotes(args.lgtm_comment_body)
         post_review(

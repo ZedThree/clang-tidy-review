@@ -19,6 +19,10 @@ inputs:
     description: 'Message to post on PR if no issues are found. An empty string will post no LGTM comment.'
     required: false
     default: 'clang-tidy review says "All clean, LGTM! :+1:"'
+  annotations:
+    description: "Use annotations instead of comments. See README for limitations on annotations"
+    required: false
+    default: false
   workflow_id:
     description: 'ID of the review workflow'
     default: ${{ github.event.workflow_run.id }}
@@ -38,3 +42,4 @@ runs:
     - --lgtm-comment-body='${{ inputs.lgtm_comment_body }}'
     - --workflow_id=${{ inputs.workflow_id }}
     - --pr_number=${{ inputs.pr_number }}
+    - --annotations=${{ inputs.annotations }}
