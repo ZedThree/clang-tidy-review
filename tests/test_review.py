@@ -87,6 +87,19 @@ TEST_DIAGNOSTIC = {
 }
 
 
+class MockClangTidyVersionProcess:
+    """Mock out subprocess call to clang-tidy --version"""
+
+    def __init__(self, version: int):
+        self.stdout = f"""\
+LLVM (http://llvm.org/):
+  LLVM version {version}.1.7
+  Optimized build.
+  Default target: x86_64
+  Host CPU: skylake
+        """
+
+
 def test_message_group(capsys):
     with ctr.message_group("some_title"):
         print("message body")
@@ -292,3 +305,120 @@ def test_make_comment():
     )
     assert comment == expected_comment
     assert end_line == 5
+
+
+def test_format_notes():
+    message = ctr.format_notes([], TEST_OFFSET_LOOKUP)
+    assert message == ""
+
+    notes = [
+        {"Message": "Test message 1", "FilePath": str(TEST_FILE), "FileOffset": 42},
+        {"Message": "Test message 2", "FilePath": str(TEST_FILE), "FileOffset": 98},
+    ]
+
+    # Make sure we're in the test directory so the relative paths work
+    os.chdir(TEST_DIR)
+    message = ctr.format_notes(notes, TEST_OFFSET_LOOKUP)
+
+    assert message == textwrap.dedent(
+        """\
+    <details>
+    <summary>Additional context</summary>
+
+    **src/hello.cxx:4:** Test message 1
+    ```cpp
+    const std::string selective_hello(std::string name) {
+     ^
+    ```
+    **src/hello.cxx:5:** Test message 2
+    ```cpp
+      if (name.compare("Peter")) {
+       ^
+    ```
+
+    </details>
+        """
+    )
+
+
+def test_make_comment_with_notes():
+    comment, end_line = ctr.make_comment_from_diagnostic(
+        "readability-const-return-type",
+        TEST_DIAGNOSTIC,
+        str(TEST_FILE),
+        TEST_OFFSET_LOOKUP,
+        [
+            {"Message": "Test message 1", "FilePath": str(TEST_FILE), "FileOffset": 42},
+            {"Message": "Test message 2", "FilePath": str(TEST_FILE), "FileOffset": 98},
+        ],
+    )
+
+    expected_comment = textwrap.dedent(
+        """\
+        warning: return type 'const std::string' (aka 'const basic_string<char>') is 'const'-qualified at the top level, which may reduce code readability without improving const correctness [readability-const-return-type]
+
+        ```suggestion
+        std::string selective_hello(std::string name) {
+        ```
+        <details>
+        <summary>Additional context</summary>
+
+        **src/hello.cxx:4:** Test message 1
+        ```cpp
+        const std::string selective_hello(std::string name) {
+         ^
+        ```
+        **src/hello.cxx:5:** Test message 2
+        ```cpp
+          if (name.compare("Peter")) {
+           ^
+        ```
+
+        </details>
+        """  # noqa: E501
+    )
+    assert comment == expected_comment
+    assert end_line == 5
+
+
+def test_version(monkeypatch):
+    # Mock out the actual call so this test doesn't depend on a
+    # particular version of clang-tidy being installed
+    expected_version = 42
+    monkeypatch.setattr(
+        ctr.subprocess,
+        "run",
+        lambda *args, **kwargs: MockClangTidyVersionProcess(expected_version),
+    )
+
+    version = ctr.clang_tidy_version("not-clang-tidy")
+    assert version == expected_version
+
+
+def test_config_file(monkeypatch, tmp_path):
+    # Mock out the actual call so this test doesn't depend on a
+    # particular version of clang-tidy being installed
+    monkeypatch.setattr(
+        ctr.subprocess, "run", lambda *args, **kwargs: MockClangTidyVersionProcess(12)
+    )
+
+    config_file = tmp_path / ".clang-tidy"
+    config_file.touch()
+
+    flag = ctr.config_file_or_checks("not-clang-tidy", "readability", str(config_file))
+    assert flag == f'--config-file="{config_file}"'
+
+    os.chdir(tmp_path)
+    flag = ctr.config_file_or_checks("not-clang-tidy", "readability", "")
+    assert flag == '--config-file=".clang-tidy"'
+
+    monkeypatch.setattr(
+        ctr.subprocess, "run", lambda *args, **kwargs: MockClangTidyVersionProcess(11)
+    )
+    flag = ctr.config_file_or_checks("not-clang-tidy", "readability", "")
+    assert flag == "--config"
+
+    config_file.unlink()
+
+    flag = ctr.config_file_or_checks("not-clang-tidy", "readability", "")
+    assert flag == "--checks=readability"

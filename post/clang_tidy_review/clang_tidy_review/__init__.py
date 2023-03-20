@@ -17,9 +17,13 @@ import unidiff
 import yaml
 import contextlib
 import datetime
+import re
+import io
+import zipfile
 from github import Github
 from github.Requester import Requester
 from github.PaginatedList import PaginatedList
+from github.WorkflowRun import WorkflowRun
 from typing import List, Optional, TypedDict
 
 DIFF_HEADER_LINE_LENGTH = 5
@@ -58,10 +62,7 @@ def build_clang_tidy_warnings(
 ) -> None:
     """Run clang-tidy on the given files and save output into FIXES_FILE"""
 
-    if config_file != "":
-        config = f'-config-file="{config_file}"'
-    else:
-        config = f"-checks={clang_tidy_checks}"
+    config = config_file_or_checks(clang_tidy_binary, clang_tidy_checks, config_file)
 
     print(f"Using config: {config}")
 
@@ -82,6 +83,56 @@ def build_clang_tidy_warnings(
     print(f"Took: {end - start}")
 
 
+def clang_tidy_version(clang_tidy_binary: str):
+    try:
+        version_out = subprocess.run(
+            f"{clang_tidy_binary} --version",
+            capture_output=True,
+            shell=True,
+            check=True,
+            text=True,
+        ).stdout
+    except subprocess.CalledProcessError as e:
+        print(f"\n\nWARNING: Couldn't get clang-tidy version, error was: {e}")
+        return 0
+
+    if version := re.search(r"version (\d+)", version_out):
+        return int(version.group(1))
+
+    print(
+        f"\n\nWARNING: Couldn't get clang-tidy version number, '{clang_tidy_binary} --version' reported: {version_out}"
+    )
+    return 0
+
+
+def config_file_or_checks(
+    clang_tidy_binary: str, clang_tidy_checks: str, config_file: str
+):
+    version = clang_tidy_version(clang_tidy_binary)
+
+    # If config_file is set, use that
+    if config_file == "":
+        if pathlib.Path(".clang-tidy").exists():
+            config_file = ".clang-tidy"
+    elif not pathlib.Path(config_file).exists():
+        print(f"WARNING: Could not find specified config file '{config_file}'")
+        config_file = ""
+
+    if not config_file:
+        return f"--checks={clang_tidy_checks}"
+
+    if version >= 12:
+        return f'--config-file="{config_file}"'
+
+    if config_file != ".clang-tidy":
+        print(
+            f"\n\nWARNING: non-default config file name '{config_file}' will be ignored for "
+            "selected clang-tidy version {version}. This version expects exactly '.clang-tidy'\n"
+        )
+
+    return "--config"
+
+
 def load_clang_tidy_warnings():
     """Read clang-tidy warnings from FIXES_FILE. Can be produced by build_clang_tidy_warnings"""
     try:
@@ -94,14 +145,26 @@ def load_clang_tidy_warnings():
 class PullRequest:
     """Add some convenience functions not in PyGithub"""
 
-    def __init__(self, repo: str, pr_number: int, token: str) -> None:
-        self.repo = repo
+    def __init__(self, repo: str, pr_number: Optional[int], token: str) -> None:
+        self.repo_name = repo
         self.pr_number = pr_number
         self.token = token
 
+        # Choose API URL, default to public GitHub
+        self.api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+
         github = Github(token)
-        repo_object = github.get_repo(f"{repo}")
-        self._pull_request = repo_object.get_pull(pr_number)
+        self.repo = github.get_repo(f"{repo}")
+        self._pull_request = None
+
+    @property
+    def pull_request(self):
+        if self._pull_request is None:
+            if self.pr_number is None:
+                raise RuntimeError("Missing PR number")
+
+            self._pull_request = self.repo.get_pull(int(self.pr_number))
+        return self._pull_request
 
     def headers(self, media_type: str):
         return {
@@ -111,9 +174,7 @@ class PullRequest:
 
     @property
     def base_url(self):
-        # read the API url from the environment variable GITHUB_API_URL, if it is not set, use the default value
-        api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com")
-        return f"{api_url}/repos/{self.repo}/pulls/{self.pr_number}"
+        return f"{self.api_url}/repos/{self.repo_name}/pulls/{self.pr_number}"
 
     def get(self, media_type: str, extra: str = "") -> str:
         url = f"{self.base_url}{extra}"
@@ -145,7 +206,7 @@ class PullRequest:
 
         return PaginatedList(
             get_element,
-            self._pull_request._requester,
+            self.pull_request._requester,
             f"{self.base_url}/comments",
             None,
         )
@@ -163,7 +224,7 @@ class PullRequest:
                 print("Already posted, no need to update")
                 return
 
-        self._pull_request.create_issue_comment(body)
+        self.pull_request.create_issue_comment(body)
 
     def post_review(self, review):
         """Submit a completed review"""
@@ -535,6 +596,9 @@ def format_notes(notes, offset_lookup):
         code = format_ordinary_line(source_line, line_offset)
         code_blocks += f"{message}\n{code}"
 
+    if notes:
+        code_blocks = f"<details>\n<summary>Additional context</summary>\n\n{code_blocks}\n</details>\n"
+
     return code_blocks
 
 
@@ -720,8 +784,49 @@ def create_review(
         return review
 
 
-def load_metadata() -> Metadata:
+def download_artifacts(pull: PullRequest, workflow_id: int):
+    """Attempt to automatically download the artifacts from a previous
+    run of the review Action"""
+
+    # workflow id is an input: ${{github.event.workflow_run.id }}
+    workflow: WorkflowRun = pull.repo.get_workflow_run(workflow_id)
+    # I don't understand why mypy complains about the next line!
+    for artifact in workflow.get_artifacts():
+        if artifact.name == "clang-tidy-review":
+            break
+    else:
+        # Didn't find the artefact, so bail
+        print(
+            f"Couldn't find 'clang-tidy-review' artifact for workflow '{workflow_id}'. "
+            "Available artifacts are: {list(workflow.get_artifacts())}"
+        )
+        return None, None
+
+    r = requests.get(artifact.archive_download_url, headers=pull.headers("json"))
+    if not r.ok:
+        print(
+            f"WARNING: Couldn't automatically download artifacts for workflow '{workflow_id}', response was: {r}: {r.reason}"
+        )
+        return None, None
+
+    contents = b"".join(r.iter_content())
+
+    data = zipfile.ZipFile(io.BytesIO(contents))
+    filenames = data.namelist()
+
+    metadata = (
+        json.loads(data.read(METADATA_FILE)) if METADATA_FILE in filenames else None
+    )
+    review = json.loads(data.read(REVIEW_FILE)) if REVIEW_FILE in filenames else None
+    return metadata, review
+
+
+def load_metadata() -> Optional[Metadata]:
     """Load metadata from the METADATA_FILE path"""
+
+    if not pathlib.Path(METADATA_FILE).exists():
+        print(f"WARNING: Could not find metadata file ('{METADATA_FILE}')", flush=True)
+        return None
 
     with open(METADATA_FILE, "r") as metadata_file:
         return json.load(metadata_file)
@@ -742,12 +847,13 @@ def load_review() -> Optional[PRReview]:
 
     """
 
+    if not pathlib.Path(REVIEW_FILE).exists():
+        print(f"WARNING: Could not find review file ('{REVIEW_FILE}')", flush=True)
+        return None
+
     with open(REVIEW_FILE, "r") as review_file:
         payload = json.load(review_file)
-        if payload:
-            return payload
-
-        return None
+        return payload or None
 
 
 def get_line_ranges(diff, files):

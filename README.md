@@ -36,12 +36,22 @@ jobs:
 
     # Optionally generate compile_commands.json
 
-    - uses: ZedThree/clang-tidy-review@v0.10.0
+    - uses: ZedThree/clang-tidy-review@v0.12.0
       id: review
+
+    # Uploads an artefact containing clang_fixes.json
+    - uses: ZedThree/clang-tidy-review/upload@v0.12.0
+      id: upload-review
+
     # If there are any comments, fail the check
     - if: steps.review.outputs.total_comments > 0
       run: exit 1
 ```
+
+The `ZedThree/clang-tidy-review/upload` Action is optional (unless using the
+split workflow, see below), and will upload some of the output files as workflow
+artefacts. These are useful when there are more comments than can be posted, as
+well as for applying fixes locally.
 
 ## Limitations
 
@@ -78,12 +88,13 @@ at once, so `clang-tidy-review` will only attempt to post the first
 - `base_dir`: Absolute path to initial working directory
   `GITHUB_WORKSPACE`.
   - default: `GITHUB_WORKSPACE`
-- `clang_tidy_version`: Version of clang-tidy to use; one of 6.0, 7, 8, 9, 10, 11
-  - default: '11'
+- `clang_tidy_version`: Version of clang-tidy to use; one of 11, 12,
+  13, 14
+  - default: '14'
 - `clang_tidy_checks`: List of checks
   - default: `'-*,performance-*,readability-*,bugprone-*,clang-analyzer-*,cppcoreguidelines-*,mpi-*,misc-*'`
-- `config_file`: Path to clang-tidy config file, replaces `clang_tidy_checks`. Example for a .clang-tidy file at the root of the repo: `config_file: '.clang-tidy'`
-  - default: ''
+- `config_file`: Path to clang-tidy config file, replaces `clang_tidy_checks`
+  - default: `.clang-tidy` if it already exists, otherwise ''
 - `include`: Comma-separated list of files or patterns to include
   - default: `"*.[ch],*.[ch]xx,*.[ch]pp,*.[ch]++,*.cc,*.hh"`
 - `exclude`: Comma-separated list of files or patterns to exclude
@@ -96,9 +107,12 @@ at once, so `clang-tidy-review` will only attempt to post the first
   - default: ''
 - `max_comments`: Maximum number of comments to post at once
   - default: '25'
-- `lgtm_comment_body`: Message to post on PR if no issues are found. An empty string will post no LGTM comment.
+- `lgtm_comment_body`: Message to post on PR if no issues are
+  found. An empty string will post no LGTM comment.
   - default: 'clang-tidy review says "All clean, LGTM! :+1:"'
-- `split_workflow`: Only generate but don't post the review, leaving it for the second workflow. Relevant when receiving PRs from forks that don't have the required permissions to post reviews.
+- `split_workflow`: Only generate but don't post the review, leaving
+  it for the second workflow. Relevant when receiving PRs from forks
+  that don't have the required permissions to post reviews.
   - default: false
 
 ## Outputs
@@ -128,7 +142,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - uses: ZedThree/clang-tidy-review@v0.10.0
+    - uses: ZedThree/clang-tidy-review@v0.12.0
       id: review
       with:
         # List of packages to install
@@ -181,7 +195,7 @@ jobs:
     - name: Set base_dir
       run: echo "base_dir=$(pwd)" >> $GITHUB_ENV
 
-    - uses: ZedThree/clang-tidy-review@v0.10.0
+    - uses: ZedThree/clang-tidy-review@v0.12.0
       id: review
       with:
         # Tell clang-tidy-review the base directory.
@@ -192,9 +206,10 @@ jobs:
 
 ## Usage in fork environments (Split workflow)
 
-Actions from forks are limited in their permissions for your security. To support this use case, you can use the split workflow described below.
+Actions from forks are limited in their permissions for your security. To
+support this use case, you can use the split workflow described below.
 
-Example lint workflow:
+Example review workflow:
 
 ```yaml
 name: clang-tidy-review
@@ -211,17 +226,18 @@ jobs:
 
     # Optionally generate compile_commands.json
 
-    - uses: ZedThree/clang-tidy-review@v0.10.0
+    - uses: ZedThree/clang-tidy-review@v0.12.0
       with:
         split_workflow: true
 
-    - uses: actions/upload-artifact@v3
-      with:
-        name: clang-tidy-review
-        path: |
-          clang-tidy-review-output.json
-          clang-tidy-review-metadata.json
+    - uses: ZedThree/clang-tidy-review/upload@v0.12.0
 ```
+The `clang-tidy-review/upload` Action will automatically upload the following
+files as workflow artefacts:
+
+- `clang-tidy-review-output.json`
+- `clang-tidy-review-metadata.json`
+- `clang_fixes.json`
 
 Example post comments workflow:
 
@@ -240,36 +256,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Downloads the artifact uploaded by the lint action
-      - name: 'Download artifact'
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id: ${{github.event.workflow_run.id }},
-            });
-            const matchArtifact = artifacts.data.artifacts.filter((artifact) => {
-              return artifact.name == "clang-tidy-review"
-            })[0];
-            const download = await github.rest.actions.downloadArtifact({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              artifact_id: matchArtifact.id,
-              archive_format: 'zip',
-            });
-            const fs = require('fs');
-            fs.writeFileSync('${{github.workspace}}/clang-tidy-review.zip', Buffer.from(download.data));
-      - name: 'Unzip artifact'
-        run: unzip clang-tidy-review.zip
-
-      - uses: ZedThree/clang-tidy-review/post@v0.10.0
+      - uses: ZedThree/clang-tidy-review/post@v0.12.0
 ```
 
-The lint workflow runs with limited permissions, while the post
-comments workflow has the required permissions because it's triggered
-by the `workflow_run` event.
+This Action will try to automatically download
+`clang-tidy-review-{output,metadata}.json` from the workflow that triggered it.
+
+The review workflow runs with limited permissions and no access to
+repo/organisation secrets, while the post comments workflow has the required
+permissions because it's triggered by the `workflow_run` event and always uses
+the version of the workflow in the original repo.
 
 Read more about workflow security limitations
 [here](https://securitylab.github.com/research/github-actions-preventing-pwn-requests/).
