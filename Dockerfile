@@ -13,7 +13,7 @@ RUN apt update && \
     python3-pip \
     && rm -rf /var/lib/apt/lists/
 
-COPY . .git /clang_tidy_review/
+COPY . /clang_tidy_review/
 
 RUN python3 -m pip install --upgrade pip && \
     python3 -m pip install /clang_tidy_review/post/clang_tidy_review
