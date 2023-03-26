@@ -273,6 +273,8 @@ the version of the workflow in the original repo.
 Read more about workflow security limitations
 [here](https://securitylab.github.com/research/github-actions-preventing-pwn-requests/).
 
+Ensure that your workflow name doesn't contain any [special characters](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#filter-pattern-cheat-sheet) as Github [does not treat](https://github.com/orgs/community/discussions/50835#discussioncomment-5428789) `workflow_run.workflows` literally.
+
 ## Project layout
 
 This project is laid out as follows:
