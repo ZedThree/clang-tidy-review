@@ -121,6 +121,7 @@ def main():
         apt_packages = re.split(BAD_CHARS_APT_PACKAGES_PATTERN, args.apt_packages)[
             0
         ].split(",")
+        apt_packages = [pkg.strip() for pkg in apt_packages]
         with message_group(f"Installing additional packages: {apt_packages}"):
             subprocess.run(["apt-get", "update"])
             subprocess.run(
