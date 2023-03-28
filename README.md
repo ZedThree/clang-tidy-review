@@ -260,6 +260,12 @@ jobs:
 
     steps:
       - uses: ZedThree/clang-tidy-review/post@v0.12.0
+        # lgtm_comment_body, max_comments, and annotations need to be set on the posting workflow in a split setup
+        with:
+          # adjust options as necessary
+          lgtm_comment_body: ''
+          annotations: false
+          max_comments: 10
 ```
 
 This Action will try to automatically download
