@@ -53,11 +53,10 @@ def main():
         type=bool_argument,
         default=False,
     )
-    parser.add_argument("--pr_number", help="PR number", default=None)
 
     args = parser.parse_args()
 
-    pull_request = PullRequest(args.repo, args.pr_number, args.token)
+    pull_request = PullRequest(args.repo, None, args.token)
 
     # Try to read the review artifacts if they're already present
     metadata = load_metadata()
@@ -71,14 +70,7 @@ def main():
     if metadata is None:
         raise RuntimeError("Couldn't find review metadata")
 
-    if args.pr_number is not None and int(args.pr_number) != int(metadata["pr_number"]):
-        raise RuntimeError(
-            f"Conflicting PR numbers: Action was passed #{args.pr_number} "
-            f"and metadata from previous run has #{metadata['pr_number']}"
-        )
-
-    if args.pr_number is None:
-        pull_request.pr_number = metadata["pr_number"]
+    pull_request.pr_number = metadata["pr_number"]
 
     print(
         "clang-tidy-review generated the following review",
