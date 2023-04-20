@@ -89,8 +89,8 @@ at once, so `clang-tidy-review` will only attempt to post the first
   `GITHUB_WORKSPACE`.
   - default: `GITHUB_WORKSPACE`
 - `clang_tidy_version`: Version of clang-tidy to use; one of 11, 12,
-  13, 14
-  - default: '14'
+  13, 14, 15
+  - default: '15'
 - `clang_tidy_checks`: List of checks
   - default: `'-*,performance-*,readability-*,bugprone-*,clang-analyzer-*,cppcoreguidelines-*,mpi-*,misc-*'`
 - `config_file`: Path to clang-tidy config file, replaces `clang_tidy_checks`
