@@ -1,4 +1,4 @@
-name: 'clang-tidy review'
+name: 'clang-tidy review 16'
 author: 'Peter Hill'
 description: 'Create a pull request review based on warnings from clang-tidy'
 branding:
