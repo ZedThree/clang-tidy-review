@@ -809,7 +809,7 @@ def download_artifacts(pull: PullRequest, workflow_id: int):
         # Didn't find the artefact, so bail
         print(
             f"Couldn't find 'clang-tidy-review' artifact for workflow '{workflow_id}'. "
-            "Available artifacts are: {list(workflow.get_artifacts())}"
+            f"Available artifacts are: {list(workflow.get_artifacts())}"
         )
         return None, None
 
