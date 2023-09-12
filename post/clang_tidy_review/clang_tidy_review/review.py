@@ -20,6 +20,7 @@ from clang_tidy_review import (
     strip_enclosing_quotes,
     post_annotations,
     bool_argument,
+    set_output,
 )
 
 
@@ -158,6 +159,8 @@ def main():
         save_metadata(args.pr)
 
     if args.split_workflow:
+        total_comments = 0 if review is None else len(review["comments"])
+        set_output("total_comments", total_comments)
         print("split_workflow is enabled, not posting review")
         return
 
