@@ -111,16 +111,10 @@ def config_file_or_checks(
 ):
     version = clang_tidy_version(clang_tidy_binary)
 
-    # If config_file is set, use that
     if config_file == "":
-        if pathlib.Path(".clang-tidy").exists():
-            config_file = ".clang-tidy"
-    elif not pathlib.Path(config_file).exists():
-        print(f"WARNING: Could not find specified config file '{config_file}'")
-        config_file = ""
-
-    if not config_file:
-        return f"--checks={clang_tidy_checks}"
+        if clang_tidy_checks:
+            return f"--checks={clang_tidy_checks}"
+        return ""
 
     if version >= 12:
         return f'--config-file="{config_file}"'
