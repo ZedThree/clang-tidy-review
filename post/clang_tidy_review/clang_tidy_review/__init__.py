@@ -154,7 +154,7 @@ class PullRequest:
         # Choose API URL, default to public GitHub
         self.api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com")
 
-        github = Github(token)
+        github = Github(token, base_url=self.api_url)
         self.repo = github.get_repo(f"{repo}")
         self._pull_request = None
 
