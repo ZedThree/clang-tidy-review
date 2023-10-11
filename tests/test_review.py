@@ -231,7 +231,7 @@ def test_filter_files():
 def test_line_ranges():
     line_ranges = ctr.get_line_ranges(TEST_DIFF, ["src/hello.cxx"])
 
-    expected_line_ranges = """["{'name': 'src/hello.cxx', 'lines': [[5, 16]]}"]"""
+    expected_line_ranges = '[{"name":"src/hello.cxx","lines":[[5,16]]}]'
     assert line_ranges == expected_line_ranges
 
 
