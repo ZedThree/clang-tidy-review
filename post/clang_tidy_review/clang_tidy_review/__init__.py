@@ -20,6 +20,7 @@ import datetime
 import re
 import io
 import zipfile
+import shlex
 from github import Github
 from github.Requester import Requester
 from github.PaginatedList import PaginatedList
@@ -763,12 +764,12 @@ def create_review(
 
     # Run clang-tidy with the configured parameters and produce the CLANG_TIDY_FIXES file
     build_clang_tidy_warnings(
-        line_ranges,
+        shlex.quote(line_ranges),
         build_dir,
         clang_tidy_checks,
         clang_tidy_binary,
         config_file,
-        '"' + '" "'.join(files) + '"',
+        shlex.join(files),
     )
 
     # Read and parse the CLANG_TIDY_FIXES file
@@ -887,7 +888,7 @@ def get_line_ranges(diff, files):
 
     line_filter_json = []
     for name, lines in lines_by_file.items():
-        line_filter_json.append(str({"name": name, "lines": lines}))
+        line_filter_json.append({"name": name, "lines": lines})
     return json.dumps(line_filter_json, separators=(",", ":"))
 
 
