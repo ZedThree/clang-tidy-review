@@ -399,26 +399,31 @@ def test_config_file(monkeypatch, tmp_path):
     # Mock out the actual call so this test doesn't depend on a
     # particular version of clang-tidy being installed
     monkeypatch.setattr(
-        ctr.subprocess, "run", lambda *args, **kwargs: MockClangTidyVersionProcess(12)
+        ctr.subprocess, "run", lambda *args, **kwargs: MockClangTidyVersionProcess(15)
     )
 
     config_file = tmp_path / ".clang-tidy"
-    config_file.touch()
 
-    flag = ctr.config_file_or_checks("not-clang-tidy", "readability", str(config_file))
+    # If you set clang_tidy_checks to something and config_file to something, config_file is sent to clang-tidy.
+    flag = ctr.config_file_or_checks(
+        "not-clang-tidy", clang_tidy_checks="readability", config_file=str(config_file)
+    )
     assert flag == f'--config-file="{config_file}"'
 
-    os.chdir(tmp_path)
-    flag = ctr.config_file_or_checks("not-clang-tidy", "readability", "")
-    assert flag == '--config-file=".clang-tidy"'
-
-    monkeypatch.setattr(
-        ctr.subprocess, "run", lambda *args, **kwargs: MockClangTidyVersionProcess(11)
+    # If you set clang_tidy_checks and config_file to an empty string, neither are sent to the clang-tidy.
+    flag = ctr.config_file_or_checks(
+        "not-clang-tidy", clang_tidy_checks="", config_file=""
     )
-    flag = ctr.config_file_or_checks("not-clang-tidy", "readability", "")
-    assert flag == "--config"
+    assert flag == f""
 
-    config_file.unlink()
+    # If you get config_file to something, config_file is sent to clang-tidy.
+    flag = ctr.config_file_or_checks(
+        "not-clang-tidy", clang_tidy_checks="", config_file=str(config_file)
+    )
+    assert flag == f'--config-file="{config_file}"'
 
-    flag = ctr.config_file_or_checks("not-clang-tidy", "readability", "")
+    # If you get clang_tidy_checks to something and config_file to nothing, clang_tidy_checks is sent to clang-tidy.
+    flag = ctr.config_file_or_checks(
+        "not-clang-tidy", clang_tidy_checks="readability", config_file=""
+    )
     assert flag == "--checks=readability"
