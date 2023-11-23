@@ -68,14 +68,18 @@ def build_clang_tidy_warnings(
 
     print(f"Using config: {config}")
 
-    command = f"{clang_tidy_binary} -p={build_dir} {config} -line-filter={line_filter} {files} --export-fixes={FIXES_FILE}"
+    args = [
+        clang_tidy_binary,
+        f"-p={build_dir}",
+        config,
+        f"-line-filter={line_filter}",
+        f"--export-fixes={FIXES_FILE}",
+    ] + files
 
     start = datetime.datetime.now()
     try:
-        with message_group(f"Running:\n\t{command}"):
-            subprocess.run(
-                command, capture_output=True, shell=True, check=True, encoding="utf-8"
-            )
+        with message_group(f"Running:\n\t{args}"):
+            subprocess.run(args, capture_output=True, check=True, encoding="utf-8")
     except subprocess.CalledProcessError as e:
         print(
             f"\n\nclang-tidy failed with return code {e.returncode} and error:\n{e.stderr}\nOutput was:\n{e.stdout}"
@@ -118,7 +122,7 @@ def config_file_or_checks(
         return ""
 
     if version >= 12:
-        return f'--config-file="{config_file}"'
+        return f"--config-file={config_file}"
 
     if config_file != ".clang-tidy":
         print(
@@ -540,7 +544,7 @@ def format_diff_line(diagnostic, offset_lookup, source_line, line_offset, line_n
     return code_blocks, end_line
 
 
-def try_relative(path):
+def try_relative(path) -> pathlib.Path:
     """Try making `path` relative to current directory, otherwise make it an absolute path"""
     try:
         here = pathlib.Path.cwd()
@@ -678,7 +682,9 @@ def create_review_file(
             notes=diagnostic.get("Notes", []),
         )
 
-        rel_path = str(try_relative(get_diagnostic_file_path(diagnostic, build_dir)))
+        rel_path = try_relative(
+            get_diagnostic_file_path(diagnostic, build_dir)
+        ).as_posix()
         # diff lines are 1-indexed
         source_line = 1 + find_line_number_from_offset(
             offset_lookup,
@@ -764,12 +770,12 @@ def create_review(
 
     # Run clang-tidy with the configured parameters and produce the CLANG_TIDY_FIXES file
     build_clang_tidy_warnings(
-        shlex.quote(line_ranges),
+        line_ranges,
         build_dir,
         clang_tidy_checks,
         clang_tidy_binary,
         config_file,
-        shlex.join(files),
+        files,
     )
 
     # Read and parse the CLANG_TIDY_FIXES file
@@ -888,6 +894,8 @@ def get_line_ranges(diff, files):
 
     line_filter_json = []
     for name, lines in lines_by_file.items():
+        # On windows, unidiff has forward slashes but clang-tidy expects backslashes
+        name = os.path.join(*name.split("/"))
         line_filter_json.append({"name": name, "lines": lines})
     return json.dumps(line_filter_json, separators=(",", ":"))
 
