@@ -20,7 +20,6 @@ import datetime
 import re
 import io
 import zipfile
-import shlex
 from github import Github
 from github.Requester import Requester
 from github.PaginatedList import PaginatedList
@@ -853,19 +852,63 @@ def save_metadata(pr_number: int) -> None:
         json.dump(metadata, metadata_file)
 
 
-def load_review() -> Optional[PRReview]:
-    """Load review output from the standard REVIEW_FILE path.
-    This file contains
+def load_review(review_file: pathlib.Path) -> Optional[PRReview]:
+    """Load review output"""
 
-    """
-
-    if not pathlib.Path(REVIEW_FILE).exists():
-        print(f"WARNING: Could not find review file ('{REVIEW_FILE}')", flush=True)
+    if not review_file.exists():
+        print(f"WARNING: Could not find review file ('{review_file}')", flush=True)
         return None
 
-    with open(REVIEW_FILE, "r") as review_file:
-        payload = json.load(review_file)
+    with open(review_file, "r") as review_file_handle:
+        payload = json.load(review_file_handle)
         return payload or None
+
+
+def load_and_merge_reviews(review_files: List[pathlib.Path]) -> Optional[PRReview]:
+    reviews = []
+    for file in review_files:
+        review = load_review(file)
+        if review is not None:
+            reviews.append(review)
+
+    if not reviews:
+        return None
+
+    result = reviews[0]
+
+    class Comment:
+        def __init__(self, data):
+            self.data = data
+        def __hash__(self):
+            return hash(
+                (
+                    self.data["body"],
+                    self.data["line"],
+                    self.data["path"],
+                    self.data["side"],
+                )
+            )
+        def __eq__(self, other):
+            return type(other) is Comment and self.data == other.data
+
+        def __lt__(self, other):
+            if self.data["path"] != other.data["path"]:
+                return self.data["path"] < other.data["path"]
+            if self.data["line"] != other.data["line"]:
+                return self.data["line"] < other.data["line"]
+            if self.data["side"] != other.data["side"]:
+                return self.data["side"] < other.data["side"]
+            if self.data["body"] != other.data["body"]:
+                return self.data["body"] < other.data["body"]
+            return hash(self) < hash(other)
+
+    comments = set()
+    for review in reviews:
+        comments.update(map(Comment, review["comments"]))
+
+    result["comments"] = [c.data for c in sorted(comments)]
+
+    return result
 
 
 def get_line_ranges(diff, files):

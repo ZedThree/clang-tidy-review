@@ -6,17 +6,19 @@
 # See LICENSE for more information
 
 import argparse
+import pathlib
 import pprint
 
 from clang_tidy_review import (
     PullRequest,
-    load_review,
+    load_and_merge_reviews,
     post_review,
     load_metadata,
     strip_enclosing_quotes,
     download_artifacts,
     post_annotations,
     bool_argument,
+    REVIEW_FILE,
 )
 
 
@@ -53,6 +55,14 @@ def main() -> int:
         type=bool_argument,
         default=False,
     )
+    parser.add_argument(
+        "reviews",
+        metavar="REVIEW_FILES",
+        type=pathlib.Path,
+        nargs="*",
+        default=[REVIEW_FILE],
+        help="Split workflow review results",
+    )
 
     args = parser.parse_args()
 
@@ -60,7 +70,7 @@ def main() -> int:
 
     # Try to read the review artifacts if they're already present
     metadata = load_metadata()
-    review = load_review()
+    review = load_and_merge_reviews(args.reviews)
 
     # If not, try to download them automatically
     if metadata is None and args.workflow_id is not None:
