@@ -1003,7 +1003,7 @@ def convert_comment_to_annotations(comment):
     }
 
 
-def post_annotations(pull_request: PullRequest, review: Optional[PRReview]):
+def post_annotations(pull_request: PullRequest, review: Optional[PRReview]) -> int:
     """Post the first 10 comments in the review as annotations"""
 
     body = {
@@ -1041,6 +1041,7 @@ def post_annotations(pull_request: PullRequest, review: Optional[PRReview]):
     }
 
     pull_request.post_annotations(body)
+    return total_comments
 
 
 def bool_argument(user_input) -> bool:
