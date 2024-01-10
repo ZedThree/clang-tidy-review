@@ -59,7 +59,12 @@ class PRReview(TypedDict):
 
 
 def build_clang_tidy_warnings(
-    line_filter, build_dir, clang_tidy_checks, clang_tidy_binary, config_file, files
+    line_filter,
+    build_dir,
+    clang_tidy_checks,
+    clang_tidy_binary: pathlib.Path,
+    config_file,
+    files,
 ) -> None:
     """Run clang-tidy on the given files and save output into FIXES_FILE"""
 
@@ -88,12 +93,11 @@ def build_clang_tidy_warnings(
     print(f"Took: {end - start}")
 
 
-def clang_tidy_version(clang_tidy_binary: str):
+def clang_tidy_version(clang_tidy_binary: pathlib.Path):
     try:
         version_out = subprocess.run(
-            f"{clang_tidy_binary} --version",
+            [clang_tidy_binary, "--version"],
             capture_output=True,
-            shell=True,
             check=True,
             text=True,
         ).stdout
@@ -111,7 +115,7 @@ def clang_tidy_version(clang_tidy_binary: str):
 
 
 def config_file_or_checks(
-    clang_tidy_binary: str, clang_tidy_checks: str, config_file: str
+    clang_tidy_binary: pathlib.Path, clang_tidy_checks: str, config_file: str
 ):
     version = clang_tidy_version(clang_tidy_binary)
 
@@ -739,7 +743,7 @@ def create_review(
     pull_request: PullRequest,
     build_dir: str,
     clang_tidy_checks: str,
-    clang_tidy_binary: str,
+    clang_tidy_binary: pathlib.Path,
     config_file: str,
     include: List[str],
     exclude: List[str],

@@ -7,6 +7,7 @@
 
 import argparse
 import os
+import pathlib
 import re
 import subprocess
 
@@ -34,7 +35,7 @@ def main():
     parser.add_argument("--repo", help="Repo name in form 'owner/repo'")
     parser.add_argument("--pr", help="PR number", type=int)
     parser.add_argument(
-        "--clang_tidy_binary", help="clang-tidy binary", default="clang-tidy-14"
+        "--clang_tidy_binary", help="clang-tidy binary", default="clang-tidy-14", type=pathlib.Path
     )
     parser.add_argument(
         "--build_dir", help="Directory with compile_commands.json", default="."
