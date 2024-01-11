@@ -883,6 +883,7 @@ def load_and_merge_reviews(review_files: List[pathlib.Path]) -> Optional[PRRevie
     class Comment:
         def __init__(self, data):
             self.data = data
+
         def __hash__(self):
             return hash(
                 (
@@ -892,6 +893,7 @@ def load_and_merge_reviews(review_files: List[pathlib.Path]) -> Optional[PRRevie
                     self.data["side"],
                 )
             )
+
         def __eq__(self, other):
             return type(other) is Comment and self.data == other.data
 
