@@ -20,7 +20,6 @@ import datetime
 import re
 import io
 import zipfile
-import shlex
 from github import Github
 from github.Requester import Requester
 from github.PaginatedList import PaginatedList
@@ -60,7 +59,12 @@ class PRReview(TypedDict):
 
 
 def build_clang_tidy_warnings(
-    line_filter, build_dir, clang_tidy_checks, clang_tidy_binary, config_file, files
+    line_filter,
+    build_dir,
+    clang_tidy_checks,
+    clang_tidy_binary: pathlib.Path,
+    config_file,
+    files,
 ) -> None:
     """Run clang-tidy on the given files and save output into FIXES_FILE"""
 
@@ -68,14 +72,18 @@ def build_clang_tidy_warnings(
 
     print(f"Using config: {config}")
 
-    command = f"{clang_tidy_binary} -p={build_dir} {config} -line-filter={line_filter} {files} --export-fixes={FIXES_FILE}"
+    args = [
+        clang_tidy_binary,
+        f"-p={build_dir}",
+        config,
+        f"-line-filter={line_filter}",
+        f"--export-fixes={FIXES_FILE}",
+    ] + files
 
     start = datetime.datetime.now()
     try:
-        with message_group(f"Running:\n\t{command}"):
-            subprocess.run(
-                command, capture_output=True, shell=True, check=True, encoding="utf-8"
-            )
+        with message_group(f"Running:\n\t{args}"):
+            subprocess.run(args, capture_output=True, check=True, encoding="utf-8")
     except subprocess.CalledProcessError as e:
         print(
             f"\n\nclang-tidy failed with return code {e.returncode} and error:\n{e.stderr}\nOutput was:\n{e.stdout}"
@@ -85,12 +93,11 @@ def build_clang_tidy_warnings(
     print(f"Took: {end - start}")
 
 
-def clang_tidy_version(clang_tidy_binary: str):
+def clang_tidy_version(clang_tidy_binary: pathlib.Path):
     try:
         version_out = subprocess.run(
-            f"{clang_tidy_binary} --version",
+            [clang_tidy_binary, "--version"],
             capture_output=True,
-            shell=True,
             check=True,
             text=True,
         ).stdout
@@ -108,7 +115,7 @@ def clang_tidy_version(clang_tidy_binary: str):
 
 
 def config_file_or_checks(
-    clang_tidy_binary: str, clang_tidy_checks: str, config_file: str
+    clang_tidy_binary: pathlib.Path, clang_tidy_checks: str, config_file: str
 ):
     version = clang_tidy_version(clang_tidy_binary)
 
@@ -118,7 +125,7 @@ def config_file_or_checks(
         return ""
 
     if version >= 12:
-        return f'--config-file="{config_file}"'
+        return f"--config-file={config_file}"
 
     if config_file != ".clang-tidy":
         print(
@@ -540,7 +547,7 @@ def format_diff_line(diagnostic, offset_lookup, source_line, line_offset, line_n
     return code_blocks, end_line
 
 
-def try_relative(path):
+def try_relative(path) -> pathlib.Path:
     """Try making `path` relative to current directory, otherwise make it an absolute path"""
     try:
         here = pathlib.Path.cwd()
@@ -678,7 +685,9 @@ def create_review_file(
             notes=diagnostic.get("Notes", []),
         )
 
-        rel_path = str(try_relative(get_diagnostic_file_path(diagnostic, build_dir)))
+        rel_path = try_relative(
+            get_diagnostic_file_path(diagnostic, build_dir)
+        ).as_posix()
         # diff lines are 1-indexed
         source_line = 1 + find_line_number_from_offset(
             offset_lookup,
@@ -734,7 +743,7 @@ def create_review(
     pull_request: PullRequest,
     build_dir: str,
     clang_tidy_checks: str,
-    clang_tidy_binary: str,
+    clang_tidy_binary: pathlib.Path,
     config_file: str,
     include: List[str],
     exclude: List[str],
@@ -764,12 +773,12 @@ def create_review(
 
     # Run clang-tidy with the configured parameters and produce the CLANG_TIDY_FIXES file
     build_clang_tidy_warnings(
-        shlex.quote(line_ranges),
+        line_ranges,
         build_dir,
         clang_tidy_checks,
         clang_tidy_binary,
         config_file,
-        shlex.join(files),
+        files,
     )
 
     # Read and parse the CLANG_TIDY_FIXES file
@@ -847,19 +856,65 @@ def save_metadata(pr_number: int) -> None:
         json.dump(metadata, metadata_file)
 
 
-def load_review() -> Optional[PRReview]:
-    """Load review output from the standard REVIEW_FILE path.
-    This file contains
+def load_review(review_file: pathlib.Path) -> Optional[PRReview]:
+    """Load review output"""
 
-    """
-
-    if not pathlib.Path(REVIEW_FILE).exists():
-        print(f"WARNING: Could not find review file ('{REVIEW_FILE}')", flush=True)
+    if not review_file.exists():
+        print(f"WARNING: Could not find review file ('{review_file}')", flush=True)
         return None
 
-    with open(REVIEW_FILE, "r") as review_file:
-        payload = json.load(review_file)
+    with open(review_file, "r") as review_file_handle:
+        payload = json.load(review_file_handle)
         return payload or None
+
+
+def load_and_merge_reviews(review_files: List[pathlib.Path]) -> Optional[PRReview]:
+    reviews = []
+    for file in review_files:
+        review = load_review(file)
+        if review is not None:
+            reviews.append(review)
+
+    if not reviews:
+        return None
+
+    result = reviews[0]
+
+    class Comment:
+        def __init__(self, data):
+            self.data = data
+
+        def __hash__(self):
+            return hash(
+                (
+                    self.data["body"],
+                    self.data["line"],
+                    self.data["path"],
+                    self.data["side"],
+                )
+            )
+
+        def __eq__(self, other):
+            return type(other) is Comment and self.data == other.data
+
+        def __lt__(self, other):
+            if self.data["path"] != other.data["path"]:
+                return self.data["path"] < other.data["path"]
+            if self.data["line"] != other.data["line"]:
+                return self.data["line"] < other.data["line"]
+            if self.data["side"] != other.data["side"]:
+                return self.data["side"] < other.data["side"]
+            if self.data["body"] != other.data["body"]:
+                return self.data["body"] < other.data["body"]
+            return hash(self) < hash(other)
+
+    comments = set()
+    for review in reviews:
+        comments.update(map(Comment, review["comments"]))
+
+    result["comments"] = [c.data for c in sorted(comments)]
+
+    return result
 
 
 def get_line_ranges(diff, files):
@@ -888,6 +943,8 @@ def get_line_ranges(diff, files):
 
     line_filter_json = []
     for name, lines in lines_by_file.items():
+        # On windows, unidiff has forward slashes but clang-tidy expects backslashes
+        name = os.path.join(*name.split("/"))
         line_filter_json.append({"name": name, "lines": lines})
     return json.dumps(line_filter_json, separators=(",", ":"))
 
@@ -995,7 +1052,7 @@ def convert_comment_to_annotations(comment):
     }
 
 
-def post_annotations(pull_request: PullRequest, review: Optional[PRReview]):
+def post_annotations(pull_request: PullRequest, review: Optional[PRReview]) -> int:
     """Post the first 10 comments in the review as annotations"""
 
     body = {
@@ -1033,6 +1090,7 @@ def post_annotations(pull_request: PullRequest, review: Optional[PRReview]):
     }
 
     pull_request.post_annotations(body)
+    return total_comments
 
 
 def bool_argument(user_input) -> bool:

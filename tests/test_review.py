@@ -408,7 +408,7 @@ def test_config_file(monkeypatch, tmp_path):
     flag = ctr.config_file_or_checks(
         "not-clang-tidy", clang_tidy_checks="readability", config_file=str(config_file)
     )
-    assert flag == f'--config-file="{config_file}"'
+    assert flag == f"--config-file={config_file}"
 
     # If you set clang_tidy_checks and config_file to an empty string, neither are sent to the clang-tidy.
     flag = ctr.config_file_or_checks(
@@ -420,7 +420,7 @@ def test_config_file(monkeypatch, tmp_path):
     flag = ctr.config_file_or_checks(
         "not-clang-tidy", clang_tidy_checks="", config_file=str(config_file)
     )
-    assert flag == f'--config-file="{config_file}"'
+    assert flag == f"--config-file={config_file}"
 
     # If you get clang_tidy_checks to something and config_file to nothing, clang_tidy_checks is sent to clang-tidy.
     flag = ctr.config_file_or_checks(
