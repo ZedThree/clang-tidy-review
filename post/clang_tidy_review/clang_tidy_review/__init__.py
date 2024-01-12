@@ -70,15 +70,20 @@ def build_clang_tidy_warnings(
 
     config = config_file_or_checks(clang_tidy_binary, clang_tidy_checks, config_file)
 
-    print(f"Using config: {config}")
-
     args = [
         clang_tidy_binary,
         f"-p={build_dir}",
-        config,
         f"-line-filter={line_filter}",
         f"--export-fixes={FIXES_FILE}",
-    ] + files
+    ]
+
+    if config:
+        print(f"Using config: {config}")
+        args.append(config)
+    else:
+        print("Using recursive directory config")
+
+    args += files
 
     start = datetime.datetime.now()
     try:
@@ -116,13 +121,13 @@ def clang_tidy_version(clang_tidy_binary: pathlib.Path):
 
 def config_file_or_checks(
     clang_tidy_binary: pathlib.Path, clang_tidy_checks: str, config_file: str
-):
+) -> Optional[str]:
     version = clang_tidy_version(clang_tidy_binary)
 
     if config_file == "":
         if clang_tidy_checks:
             return f"--checks={clang_tidy_checks}"
-        return ""
+        return None
 
     if version >= 12:
         return f"--config-file={config_file}"

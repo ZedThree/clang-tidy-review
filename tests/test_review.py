@@ -414,7 +414,7 @@ def test_config_file(monkeypatch, tmp_path):
     flag = ctr.config_file_or_checks(
         "not-clang-tidy", clang_tidy_checks="", config_file=""
     )
-    assert flag == f""
+    assert flag is None
 
     # If you get config_file to something, config_file is sent to clang-tidy.
     flag = ctr.config_file_or_checks(
