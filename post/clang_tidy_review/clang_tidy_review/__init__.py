@@ -895,7 +895,7 @@ def load_and_merge_reviews(review_files: List[pathlib.Path]) -> Optional[PRRevie
     reviews = []
     for file in review_files:
         review = load_review(file)
-        if review is not None:
+        if review is not None and len(review.get("comments", [])) > 0:
             reviews.append(review)
 
     if not reviews:
