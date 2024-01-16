@@ -13,7 +13,7 @@ readme = "README.md"
 authors = [{name = "Peter Hill", email = "peter.hill@york.ac.uk"}]
 license = {text = "MIT"}
 dependencies = [
-    "PyGithub ~= 1.59",
+    "PyGithub ~= 2.1",
     "unidiff ~= 0.6.0",
     "requests ~= 2.23",
     "pyyaml ~= 6.0.1",
