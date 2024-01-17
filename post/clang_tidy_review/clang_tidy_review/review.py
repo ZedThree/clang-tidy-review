@@ -22,6 +22,8 @@ from clang_tidy_review import (
     post_annotations,
     bool_argument,
     set_output,
+    add_auth_arguments,
+    get_auth_from_arguments,
 )
 
 
@@ -110,10 +112,10 @@ def main():
         type=bool_argument,
         default=False,
     )
-    parser.add_argument("--token", help="github auth token")
     parser.add_argument(
         "--dry-run", help="Run and generate review, but don't post", action="store_true"
     )
+    add_auth_arguments(parser)
 
     args = parser.parse_args()
 
@@ -147,7 +149,7 @@ def main():
     elif os.path.exists(build_compile_commands):
         fix_absolute_paths(build_compile_commands, args.base_dir)
 
-    pull_request = PullRequest(args.repo, args.pr, args.token)
+    pull_request = PullRequest(args.repo, args.pr, get_auth_from_arguments(args))
 
     review = create_review(
         pull_request,

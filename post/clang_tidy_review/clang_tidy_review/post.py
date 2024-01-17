@@ -19,6 +19,8 @@ from clang_tidy_review import (
     post_annotations,
     bool_argument,
     REVIEW_FILE,
+    add_auth_arguments,
+    get_auth_from_arguments,
 )
 
 
@@ -40,7 +42,6 @@ def main() -> int:
         type=str,
         default='clang-tidy review says "All clean, LGTM! :+1:"',
     )
-    parser.add_argument("--token", help="github auth token")
     parser.add_argument(
         "--dry-run", help="Run and generate review, but don't post", action="store_true"
     )
@@ -55,6 +56,7 @@ def main() -> int:
         type=bool_argument,
         default=False,
     )
+    add_auth_arguments(parser)
     parser.add_argument(
         "reviews",
         metavar="REVIEW_FILES",
@@ -66,7 +68,7 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    pull_request = PullRequest(args.repo, None, args.token)
+    pull_request = PullRequest(args.repo, None, get_auth_from_arguments(args))
 
     # Try to read the review artifacts if they're already present
     metadata = load_metadata()
