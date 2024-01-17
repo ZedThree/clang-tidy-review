@@ -60,12 +60,33 @@ class PRReview(TypedDict):
 
 
 def add_auth_arguments(parser: argparse.ArgumentParser):
+    # Token
     parser.add_argument("--token", help="github auth token")
+    # App
+    group_app = parser.add_argument_group("github app installation auth")
+    group_app.add_argument("--app-id", type=int, help="app ID")
+    group_app.add_argument("--private-key", type=str, help="app private key as a string")
+    group_app.add_argument("--private-key-file-path", type=str, help="app private key .pom file path")
+    group_app.add_argument("--installation-id", type=int, help="app installation ID")
 
 
 def get_auth_from_arguments(args: argparse.Namespace) -> Auth:
     if args.token:
         return Auth.Token(args.token)
+
+    if args.app_id and (args.private_key or args.private_key_file_path) and args.installation_id:
+        if args.private_key:
+            private_key = args.private_key
+        else:
+            private_key = open(args.private_key_file_path).read()
+        return Auth.AppAuth(args.app_id, private_key).get_installation_auth(
+            args.installation_id
+        )
+    elif args.app_id or args.private_key or args.private_key_file_path or args.installation_id:
+        raise argparse.ArgumentError(
+            None,
+            "--app-id, --private-key[-file-path] and --installation-id must be supplied together",
+        )
 
     raise argparse.ArgumentError(None, "authentication method not supplied")
 
