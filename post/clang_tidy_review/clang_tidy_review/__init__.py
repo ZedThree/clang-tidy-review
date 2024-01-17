@@ -65,6 +65,7 @@ def build_clang_tidy_warnings(
     clang_tidy_binary: pathlib.Path,
     config_file,
     files,
+    username: str,
 ) -> None:
     """Run clang-tidy on the given files and save output into FIXES_FILE"""
 
@@ -88,7 +89,13 @@ def build_clang_tidy_warnings(
     start = datetime.datetime.now()
     try:
         with message_group(f"Running:\n\t{args}"):
-            subprocess.run(args, capture_output=True, check=True, encoding="utf-8")
+            subprocess.run(
+                args,
+                capture_output=True,
+                check=True,
+                encoding="utf-8",
+                env={"USER": username},
+            )
     except subprocess.CalledProcessError as e:
         print(
             f"\n\nclang-tidy failed with return code {e.returncode} and error:\n{e.stderr}\nOutput was:\n{e.stdout}"
@@ -203,6 +210,10 @@ class PullRequest:
         # their own diff_line_no range
         diff = [unidiff.PatchSet(str(file))[0] for file in unidiff.PatchSet(diffs)]
         return diff
+
+    def get_pr_author(self) -> str:
+        """Get the username of the PR author. This is used in google-readability-todo"""
+        return self.pull_request.user.login
 
     def get_pr_comments(self):
         """Download the PR review comments using the comfort-fade preview headers"""
@@ -776,6 +787,8 @@ def create_review(
 
     print(f"Line filter for clang-tidy:\n{line_ranges}\n")
 
+    username = pull_request.get_pr_author() or "your name here"
+
     # Run clang-tidy with the configured parameters and produce the CLANG_TIDY_FIXES file
     build_clang_tidy_warnings(
         line_ranges,
@@ -784,6 +797,7 @@ def create_review(
         clang_tidy_binary,
         config_file,
         files,
+        username,
     )
 
     # Read and parse the CLANG_TIDY_FIXES file
