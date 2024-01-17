@@ -775,14 +775,32 @@ def create_review(
     files = filter_files(diff, include, exclude)
 
     if files == []:
-        print("No files to check!")
+        with message_group("No files to check!"):
+            with open(REVIEW_FILE, "w") as review_file:
+                json.dump(
+                    {
+                        "body": "clang-tidy found no files to check",
+                        "event": "COMMENT",
+                        "comments": [],
+                    },
+                    review_file,
+                )
         return None
 
     print(f"Checking these files: {files}", flush=True)
 
     line_ranges = get_line_ranges(diff, files)
     if line_ranges == "[]":
-        print("No lines added in this PR!")
+        with message_group("No lines added in this PR!"):
+            with open(REVIEW_FILE, "w") as review_file:
+                json.dump(
+                    {
+                        "body": "clang-tidy found no lines added",
+                        "event": "COMMENT",
+                        "comments": [],
+                    },
+                    review_file,
+                )
         return None
 
     print(f"Line filter for clang-tidy:\n{line_ranges}\n")
@@ -891,7 +909,7 @@ def load_and_merge_reviews(review_files: List[pathlib.Path]) -> Optional[PRRevie
     reviews = []
     for file in review_files:
         review = load_review(file)
-        if review is not None:
+        if review is not None and len(review.get("comments", [])) > 0:
             reviews.append(review)
 
     if not reviews:
