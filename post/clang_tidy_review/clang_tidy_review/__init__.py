@@ -90,7 +90,7 @@ def build_clang_tidy_warnings(
     try:
         with message_group(f"Running:\n\t{args}"):
             env = dict(os.environ)
-            env['USER'] = username
+            env["USER"] = username
             subprocess.run(
                 args,
                 capture_output=True,
