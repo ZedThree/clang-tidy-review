@@ -4,6 +4,7 @@
 # See LICENSE for more information
 
 import argparse
+import base64
 import fnmatch
 import itertools
 import json
@@ -63,13 +64,23 @@ def add_auth_arguments(parser: argparse.ArgumentParser):
     # Token
     parser.add_argument("--token", help="github auth token")
     # App
-    group_app = parser.add_argument_group("github app installation auth")
+    group_app = parser.add_argument_group(
+        """Github app installation authentication
+Permissions required: Contents (Read) and Pull requests (Read and Write)"""
+    )
     group_app.add_argument("--app-id", type=int, help="app ID")
     group_app.add_argument(
         "--private-key", type=str, help="app private key as a string"
     )
     group_app.add_argument(
-        "--private-key-file-path", type=str, help="app private key .pom file path"
+        "--private-key-base64",
+        type=str,
+        help="app private key as a string encoded as base64",
+    )
+    group_app.add_argument(
+        "--private-key-file-path",
+        type=pathlib.Path,
+        help="app private key .pom file path",
     )
     group_app.add_argument("--installation-id", type=int, help="app installation ID")
 
@@ -80,11 +91,13 @@ def get_auth_from_arguments(args: argparse.Namespace) -> Auth:
 
     if (
         args.app_id
-        and (args.private_key or args.private_key_file_path)
+        and (args.private_key or args.private_key_file_path or args.private_key_base64)
         and args.installation_id
     ):
         if args.private_key:
             private_key = args.private_key
+        elif args.private_key_base64:
+            private_key = base64.b64decode(args.private_key_base64).decode("ascii")
         else:
             private_key = open(args.private_key_file_path).read()
         return Auth.AppAuth(args.app_id, private_key).get_installation_auth(
@@ -94,11 +107,12 @@ def get_auth_from_arguments(args: argparse.Namespace) -> Auth:
         args.app_id
         or args.private_key
         or args.private_key_file_path
+        or args.private_key_base64
         or args.installation_id
     ):
         raise argparse.ArgumentError(
             None,
-            "--app-id, --private-key[-file-path] and --installation-id must be supplied together",
+            "--app-id, --private-key[-file-path|-base64] and --installation-id must be supplied together",
         )
 
     raise argparse.ArgumentError(None, "authentication method not supplied")
