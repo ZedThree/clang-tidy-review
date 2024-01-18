@@ -89,12 +89,14 @@ def build_clang_tidy_warnings(
     start = datetime.datetime.now()
     try:
         with message_group(f"Running:\n\t{args}"):
+            env = dict(os.environ)
+            env["USER"] = username
             subprocess.run(
                 args,
                 capture_output=True,
                 check=True,
                 encoding="utf-8",
-                env={"USER": username},
+                env=env,
             )
     except subprocess.CalledProcessError as e:
         print(
