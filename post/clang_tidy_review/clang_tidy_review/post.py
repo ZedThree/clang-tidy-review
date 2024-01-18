@@ -60,7 +60,7 @@ def main() -> int:
         metavar="REVIEW_FILES",
         type=pathlib.Path,
         nargs="*",
-        default=[REVIEW_FILE],
+        default=[pathlib.Path(REVIEW_FILE)],
         help="Split workflow review results",
     )
 
