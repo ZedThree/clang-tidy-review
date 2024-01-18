@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: MIT
 # See LICENSE for more information
 
+import argparse
 import fnmatch
 import itertools
 import json
@@ -20,7 +21,7 @@ import datetime
 import re
 import io
 import zipfile
-from github import Github
+from github import Github, Auth
 from github.Requester import Requester
 from github.PaginatedList import PaginatedList
 from github.WorkflowRun import WorkflowRun
@@ -56,6 +57,51 @@ class PRReview(TypedDict):
     body: str
     event: str
     comments: List[PRReviewComment]
+
+
+def add_auth_arguments(parser: argparse.ArgumentParser):
+    # Token
+    parser.add_argument("--token", help="github auth token")
+    # App
+    group_app = parser.add_argument_group("github app installation auth")
+    group_app.add_argument("--app-id", type=int, help="app ID")
+    group_app.add_argument(
+        "--private-key", type=str, help="app private key as a string"
+    )
+    group_app.add_argument(
+        "--private-key-file-path", type=str, help="app private key .pom file path"
+    )
+    group_app.add_argument("--installation-id", type=int, help="app installation ID")
+
+
+def get_auth_from_arguments(args: argparse.Namespace) -> Auth:
+    if args.token:
+        return Auth.Token(args.token)
+
+    if (
+        args.app_id
+        and (args.private_key or args.private_key_file_path)
+        and args.installation_id
+    ):
+        if args.private_key:
+            private_key = args.private_key
+        else:
+            private_key = open(args.private_key_file_path).read()
+        return Auth.AppAuth(args.app_id, private_key).get_installation_auth(
+            args.installation_id
+        )
+    elif (
+        args.app_id
+        or args.private_key
+        or args.private_key_file_path
+        or args.installation_id
+    ):
+        raise argparse.ArgumentError(
+            None,
+            "--app-id, --private-key[-file-path] and --installation-id must be supplied together",
+        )
+
+    raise argparse.ArgumentError(None, "authentication method not supplied")
 
 
 def build_clang_tidy_warnings(
@@ -162,17 +208,21 @@ def load_clang_tidy_warnings():
 class PullRequest:
     """Add some convenience functions not in PyGithub"""
 
-    def __init__(self, repo: str, pr_number: Optional[int], token: str) -> None:
+    def __init__(self, repo: str, pr_number: Optional[int], auth: Auth) -> None:
         self.repo_name = repo
         self.pr_number = pr_number
-        self.token = token
+        self.auth = auth
 
         # Choose API URL, default to public GitHub
         self.api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com")
 
-        github = Github(token, base_url=self.api_url)
+        github = Github(auth=self.auth, base_url=self.api_url)
         self.repo = github.get_repo(f"{repo}")
         self._pull_request = None
+
+    @property
+    def token(self):
+        return self.auth.token
 
     @property
     def pull_request(self):
