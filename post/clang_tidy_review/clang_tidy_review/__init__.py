@@ -12,7 +12,6 @@ import os
 from operator import itemgetter
 import pprint
 import pathlib
-import requests
 import subprocess
 import textwrap
 import unidiff
@@ -23,6 +22,7 @@ import re
 import io
 import zipfile
 from github import Github, Auth
+from github.GithubException import GithubException
 from github.Requester import Requester
 from github.PaginatedList import PaginatedList
 from github.WorkflowRun import WorkflowRun
@@ -247,26 +247,15 @@ class PullRequest:
             self._pull_request = self.repo.get_pull(int(self.pr_number))
         return self._pull_request
 
-    def headers(self, media_type: str):
-        return {
-            "Accept": f"application/vnd.github.{media_type}",
-            "Authorization": f"token {self.token}",
-        }
-
-    @property
-    def base_url(self):
-        return f"{self.api_url}/repos/{self.repo_name}/pulls/{self.pr_number}"
-
-    def get(self, media_type: str, extra: str = "") -> str:
-        url = f"{self.base_url}{extra}"
-        response = requests.get(url, headers=self.headers(media_type))
-        response.raise_for_status()
-        return response.text
-
     def get_pr_diff(self) -> List[unidiff.PatchSet]:
         """Download the PR diff, return a list of PatchedFile"""
 
-        diffs = self.get("v3.diff")
+        _, data = self.repo._requester.requestJsonAndCheck(
+            "GET",
+            self.pull_request.url,
+            headers={"Accept": f"application/vnd.github.{'v3.diff'}"},
+        )
+        diffs = data["data"]
 
         # PatchSet is the easiest way to construct what we want, but the
         # diff_line_no property on lines is counted from the top of the
@@ -292,7 +281,7 @@ class PullRequest:
         return PaginatedList(
             get_element,
             self.pull_request._requester,
-            f"{self.base_url}/comments",
+            self.pull_request.review_comments_url,
             None,
         )
 
@@ -311,33 +300,9 @@ class PullRequest:
 
         self.pull_request.create_issue_comment(body)
 
-    def post_review(self, review):
+    def post_review(self, review: PRReview):
         """Submit a completed review"""
-        headers = {
-            "Accept": "application/vnd.github.comfort-fade-preview+json",
-            "Authorization": f"token {self.token}",
-        }
-        url = f"{self.base_url}/reviews"
-
-        post_review_response = requests.post(url, json=review, headers=headers)
-        print(post_review_response.text)
-        try:
-            post_review_response.raise_for_status()
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 403:
-                print(
-                    "::error title=Missing permissions::This workflow does not have "
-                    "enough permissions to submit a review. This could be because "
-                    "the GitHub token specified for this workflow is invalid or "
-                    "missing permissions, or it could be because this pull request "
-                    "comes from a fork which reduces the default token permissions. "
-                    "To support forked workflows, see the "
-                    "https://github.com/ZedThree/clang-tidy-review#usage-in-fork-environments "
-                    "instructions"
-                )
-
-            # Re-raise the exception, causing an error in the workflow
-            raise e
+        self.pull_request.create_review(**review)
 
     def post_annotations(self, review):
         headers = {
@@ -346,8 +311,9 @@ class PullRequest:
         }
         url = f"{self.api_url}/repos/{self.repo_name}/check-runs"
 
-        response = requests.post(url, json=review, headers=headers)
-        response.raise_for_status()
+        self.repo._requester.requestJsonAndCheck(
+            "POST", url, parameters=review, headers=headers
+        )
 
 
 @contextlib.contextmanager
@@ -920,14 +886,17 @@ def download_artifacts(pull: PullRequest, workflow_id: int):
         )
         return None, None
 
-    r = requests.get(artifact.archive_download_url, headers=pull.headers("json"))
-    if not r.ok:
+    try:
+        _, data = pull.repo._requester.requestJsonAndCheck(
+            "GET", artifact.archive_download_url, headers=pull.headers("json")
+        )
+    except GithubException as exc:
         print(
-            f"WARNING: Couldn't automatically download artifacts for workflow '{workflow_id}', response was: {r}: {r.reason}"
+            f"WARNING: Couldn't automatically download artifacts for workflow '{workflow_id}', response was: {exc}"
         )
         return None, None
 
-    contents = b"".join(r.iter_content())
+    contents = b"".join(data["data"].iter_content())
 
     data = zipfile.ZipFile(io.BytesIO(contents))
     filenames = data.namelist()
