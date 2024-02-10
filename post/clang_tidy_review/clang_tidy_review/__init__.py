@@ -26,7 +26,8 @@ from github.GithubException import GithubException
 from github.Requester import Requester
 from github.PaginatedList import PaginatedList
 from github.WorkflowRun import WorkflowRun
-from typing import List, Optional, TypedDict
+from github.Artifact import Artifact
+from typing import Any, List, Optional, TypedDict
 
 DIFF_HEADER_LINE_LENGTH = 5
 FIXES_FILE = "clang_tidy_review.yaml"
@@ -352,6 +353,16 @@ class PullRequest:
         self.repo._requester.requestJsonAndCheck(
             "POST", url, parameters=review, headers=headers
         )
+
+    def download_json_artifact(self, artifact: Artifact) -> Any:
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {self.token}",
+        }
+        _, data = self.repo._requester.requestJsonAndCheck(
+            "GET", artifact.archive_download_url, headers=headers
+        )
+        return data
 
 
 @contextlib.contextmanager
@@ -925,9 +936,7 @@ def download_artifacts(pull: PullRequest, workflow_id: int):
         return None, None
 
     try:
-        _, data = pull.repo._requester.requestJsonAndCheck(
-            "GET", artifact.archive_download_url, headers=pull.headers("json")
-        )
+        data = pull.download_json_artifact(artifact)
     except GithubException as exc:
         print(
             f"WARNING: Couldn't automatically download artifacts for workflow '{workflow_id}', response was: {exc}"
