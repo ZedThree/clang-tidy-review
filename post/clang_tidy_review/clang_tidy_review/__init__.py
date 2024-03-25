@@ -15,6 +15,7 @@ import pathlib
 import subprocess
 import textwrap
 import unidiff
+import urllib3
 import yaml
 import contextlib
 import datetime
@@ -26,7 +27,6 @@ from github.GithubException import GithubException
 from github.Requester import Requester
 from github.PaginatedList import PaginatedList
 from github.WorkflowRun import WorkflowRun
-from github.Artifact import Artifact
 from typing import Any, List, Optional, TypedDict
 
 DIFF_HEADER_LINE_LENGTH = 5
@@ -353,16 +353,6 @@ class PullRequest:
         self.repo._requester.requestJsonAndCheck(
             "POST", url, parameters=review, headers=headers
         )
-
-    def download_json_artifact(self, artifact: Artifact) -> Any:
-        headers = {
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {self.token}",
-        }
-        _, data = self.repo._requester.requestJsonAndCheck(
-            "GET", artifact.archive_download_url, headers=headers
-        )
-        return data
 
 
 @contextlib.contextmanager
@@ -935,17 +925,18 @@ def download_artifacts(pull: PullRequest, workflow_id: int):
         )
         return None, None
 
-    try:
-        data = pull.download_json_artifact(artifact)
-    except GithubException as exc:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {pull.token}",
+    }
+    r = urllib3.request("GET", artifact.archive_download_url, headers=headers)
+    if r.status is not 200:
         print(
-            f"WARNING: Couldn't automatically download artifacts for workflow '{workflow_id}', response was: {exc}"
+            f"WARNING: Couldn't automatically download artifacts for workflow '{workflow_id}', response was: {r}: {r.reason}"
         )
         return None, None
 
-    contents = b"".join(data["data"].iter_content())
-
-    data = zipfile.ZipFile(io.BytesIO(contents))
+    data = zipfile.ZipFile(io.BytesIO(r.data))
     filenames = data.namelist()
 
     metadata = (
