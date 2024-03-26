@@ -117,6 +117,7 @@ at once, so `clang-tidy-review` will only attempt to post the first
 - `annotations`: Use Annotations instead of comments. A maximum of 10
   annotations can be written fully, the rest will be summarised. This is a
   limitation of the GitHub API.
+- `num_comments_as_exitcode`: Set the exit code to be the amount of comments (enabled by default).
 
 ## Outputs
 

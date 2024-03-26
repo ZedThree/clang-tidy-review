@@ -56,6 +56,12 @@ def main() -> int:
         type=bool_argument,
         default=False,
     )
+    parser.add_argument(
+        "--num-comments-as-exitcode",
+        help="Set the exit code to be the amount of comments",
+        type=bool_argument,
+        default=True,
+    )
     add_auth_arguments(parser)
     parser.add_argument(
         "reviews",
@@ -91,12 +97,17 @@ def main() -> int:
     )
 
     if args.annotations:
-        return post_annotations(pull_request, review)
+        exit_code = post_annotations(pull_request, review)
     else:
         lgtm_comment_body = strip_enclosing_quotes(args.lgtm_comment_body)
-        return post_review(
+        exit_code = post_review(
             pull_request, review, args.max_comments, lgtm_comment_body, args.dry_run
         )
+
+    if args.num_comments_as_exitcode:
+        return exit_code
+    else:
+        return 0
 
 
 if __name__ == "__main__":
