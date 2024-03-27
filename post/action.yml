@@ -23,6 +23,10 @@ inputs:
     description: "Use annotations instead of comments. See README for limitations on annotations"
     required: false
     default: false
+  num_comments_as_exitcode:
+    description: "Set the exit code to be the amount of comments"
+    required: false
+    default: 'true'
   workflow_id:
     description: 'ID of the review workflow'
     default: ${{ github.event.workflow_run.id }}
@@ -39,3 +43,4 @@ runs:
     - --lgtm-comment-body='${{ inputs.lgtm_comment_body }}'
     - --workflow_id=${{ inputs.workflow_id }}
     - --annotations=${{ inputs.annotations }}
+    - --num-comments-as-exitcode=${{ inputs.num_comments_as_exitcode }}
