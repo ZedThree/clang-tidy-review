@@ -1085,6 +1085,29 @@ def set_output(key: str, val: str) -> bool:
     return True
 
 
+def decorate_comment_body(comment: str) -> str:
+    """
+    Split on first dash into two groups of string in [] at end of line
+    exception: if the first group starts with 'clang' such as 'clang-diagnostic-error'
+    exception to the exception: if the string starts with 'clang-analyzer', in which case, make it the first group
+    """
+    version = "extra"
+    url = f"https://clang.llvm.org/{version}/clang-tidy/checks"
+    regex = r"(\[((?:clang-analyzer)|(?:(?!clang)[\w]+))-([\.\w-]+)\]$)"
+    subst = f"[\\g<1>({url}/\\g<2>/\\g<3>.html)]"
+    return re.sub(regex, subst, comment, 1, re.MULTILINE)
+
+
+def decorate_comment(comment: PRReviewComment) -> PRReviewComment:
+    comment["body"] = decorate_comment_body(comment["body"])
+    return comment
+
+
+def decorate_comments(review: PRReview) -> PRReview:
+    review["comments"] = list(map(decorate_comment, review["comments"]))
+    return review
+
+
 def post_review(
     pull_request: PullRequest,
     review: Optional[PRReview],
@@ -1104,12 +1127,12 @@ def post_review(
 
     total_comments = len(review["comments"])
 
-    set_output("total_comments", total_comments)
+    set_output("total_comments", str(total_comments))
 
     print("Removing already posted or extra comments", flush=True)
     trimmed_review = cull_comments(pull_request, review, max_comments)
 
-    if trimmed_review["comments"] == []:
+    if not trimmed_review["comments"]:
         print("Everything already posted!")
         return total_comments
 
@@ -1117,8 +1140,10 @@ def post_review(
         pprint.pprint(review, width=130)
         return total_comments
 
-    print("Posting the review:\n", pprint.pformat(trimmed_review), flush=True)
-    pull_request.post_review(trimmed_review)
+    decorated_review = decorate_comments(trimmed_review)
+
+    print("Posting the review:\n", pprint.pformat(decorated_review), flush=True)
+    pull_request.post_review(decorated_review)
 
     return total_comments
 

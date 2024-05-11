@@ -427,3 +427,38 @@ def test_config_file(monkeypatch, tmp_path):
         "not-clang-tidy", clang_tidy_checks="readability", config_file=""
     )
     assert flag == "--checks=readability"
+
+
+def test_decorate_comment_body():
+    # No link to generic error so the message shouldn't be changed
+    error_message = (
+        "warning: no member named 'ranges' in namespace 'std' [clang-diagnostic-error]"
+    )
+    assert ctr.decorate_comment_body(error_message) == error_message
+
+    todo_message = "warning: missing username/bug in TODO [google-readability-todo]"
+    todo_message_decorated = "warning: missing username/bug in TODO [[google-readability-todo](https://clang.llvm.org/extra/clang-tidy/checks/google/readability-todo.html)]"
+    assert ctr.decorate_comment_body(todo_message) == todo_message_decorated
+
+    naming_message = "warning: invalid case style for constexpr variable 'foo' [readability-identifier-naming]"
+    naming_message_decorated = "warning: invalid case style for constexpr variable 'foo' [[readability-identifier-naming](https://clang.llvm.org/extra/clang-tidy/checks/readability/identifier-naming.html)]"
+    assert ctr.decorate_comment_body(naming_message) == naming_message_decorated
+
+    clang_analyzer_message = "warning: Array access (from variable 'foo') results in a null pointer dereference [clang-analyzer-core.NullDereference]"
+    clang_analyzer_message_decorated = "warning: Array access (from variable 'foo') results in a null pointer dereference [[clang-analyzer-core.NullDereference](https://clang.llvm.org/extra/clang-tidy/checks/clang-analyzer/core.NullDereference.html)]"
+    assert (
+        ctr.decorate_comment_body(clang_analyzer_message)
+        == clang_analyzer_message_decorated
+    )
+
+    # Not sure it's necessary to link to prior version documentation especially since we have to map versions such as
+    # "17" to "17.0.1" and "18" to "18.1.0" because no other urls exist
+    # version_message_pre_15_version = "14.0.0"
+    # version_message_pre_15 = "warning: missing username/bug in TODO [google-readability-todo]"
+    # version_message_pre_15_decorated = "warning: missing username/bug in TODO [[google-readability-todo](https://releases.llvm.org/14.0.0/tools/clang/tools/extra/docs/clang-tidy/checks/google-readability-todo.html)]"
+    # assert ctr.decorate_comment_body(version_message_pre_15, version_message_pre_15_version) == version_message_pre_15_decorated
+    #
+    # version_message_1500_version = "15.0.0"
+    # version_message_1500 = "warning: missing username/bug in TODO [google-readability-todo]"
+    # version_message_1500_decorated = "warning: missing username/bug in TODO [[google-readability-todo](https://releases.llvm.org/15.0.0/tools/clang/tools/extra/docs/clang-tidy/checks/google/readability-todo.html)]"
+    # assert ctr.decorate_comment_body(version_message_1500, version_message_1500_version) == version_message_1500_decorated
