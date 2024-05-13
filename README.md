@@ -122,7 +122,7 @@ at once, so `clang-tidy-review` will only attempt to post the first
 
 - `total_comments`: Total number of warnings from clang-tidy
 
-## Generating `compile_commands.json` inside the container
+## Generating `compile_commands.json`
 
 Very simple projects can get away without a `compile_commands.json`
 file, but for most projects `clang-tidy` needs this file in order to
@@ -156,6 +156,10 @@ jobs:
 
 If you don't use CMake, this may still work for you if you can use a
 tool like [bear](https://github.com/rizsotto/Bear) for example.
+
+You can also generate this file outside the container, e.g. by adding
+`-DCMAKE_EXPORT_COMPILE_COMMANDS=ON` to a cmake command in an earlier
+action and omitting the `cmake_command` paramter.
 
 ## Use in a non-default location
 
