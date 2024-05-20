@@ -33,6 +33,7 @@ DIFF_HEADER_LINE_LENGTH = 5
 FIXES_FILE = "clang_tidy_review.yaml"
 METADATA_FILE = "clang-tidy-review-metadata.json"
 REVIEW_FILE = "clang-tidy-review-output.json"
+PROFILE_DIR = "clang-tidy-review-profile"
 MAX_ANNOTATIONS = 10
 
 
@@ -175,6 +176,8 @@ def build_clang_tidy_warnings(
         f"-p={build_dir}",
         f"-line-filter={line_filter}",
         f"--export-fixes={FIXES_FILE}",
+        "--enable-check-profile",
+        f"-store-check-profile={PROFILE_DIR}"
     ]
 
     if config:
