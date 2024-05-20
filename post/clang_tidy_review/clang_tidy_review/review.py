@@ -113,6 +113,13 @@ def main():
         default=False,
     )
     parser.add_argument(
+        "-j",
+        "--parallel",
+        help="Number of tidy instances to be run in parallel.",
+        type=int,
+        default=0,
+    )
+    parser.add_argument(
         "--dry-run", help="Run and generate review, but don't post", action="store_true"
     )
     add_auth_arguments(parser)
@@ -157,6 +164,7 @@ def main():
         args.clang_tidy_checks,
         args.clang_tidy_binary,
         args.config_file,
+        args.parallel,
         include,
         exclude,
     )

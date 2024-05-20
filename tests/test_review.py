@@ -1,3 +1,5 @@
+import datetime
+
 import clang_tidy_review as ctr
 
 import difflib
@@ -235,10 +237,10 @@ def test_line_ranges():
     assert line_ranges == expected_line_ranges
 
 
-def test_load_clang_tidy_warnings(monkeypatch):
-    monkeypatch.setattr(ctr, "FIXES_FILE", str(TEST_DIR / f"src/test_{ctr.FIXES_FILE}"))
-
-    warnings = ctr.load_clang_tidy_warnings()
+def test_load_clang_tidy_warnings():
+    warnings = ctr.load_clang_tidy_warnings(
+        str(TEST_DIR / f"src/test_{ctr.FIXES_FILE}")
+    )
 
     assert sorted(list(warnings.keys())) == ["Diagnostics", "MainSourceFile"]
     assert warnings["MainSourceFile"] == "/clang_tidy_review/src/hello.cxx"
@@ -470,5 +472,5 @@ def test_timing_summary(monkeypatch):
     assert "time.clang-tidy.total.wall" in profiling["hello.cxx"].keys()
     assert "time.clang-tidy.total.user" in profiling["hello.cxx"].keys()
     assert "time.clang-tidy.total.sys" in profiling["hello.cxx"].keys()
-    summary = ctr.make_timing_summary(profiling)
-    assert len(summary.split("\n")) == 21
+    summary = ctr.make_timing_summary(profiling, datetime.timedelta(seconds=42))
+    assert len(summary.split("\n")) == 22
