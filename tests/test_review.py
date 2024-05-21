@@ -462,3 +462,13 @@ def test_decorate_comment_body():
     # version_message_1500 = "warning: missing username/bug in TODO [google-readability-todo]"
     # version_message_1500_decorated = "warning: missing username/bug in TODO [[google-readability-todo](https://releases.llvm.org/15.0.0/tools/clang/tools/extra/docs/clang-tidy/checks/google/readability-todo.html)]"
     # assert ctr.decorate_comment_body(version_message_1500, version_message_1500_version) == version_message_1500_decorated
+
+
+def test_timing_summary(monkeypatch):
+    monkeypatch.setattr(ctr, "PROFILE_DIR", str(TEST_DIR / f"src/clang-tidy-profile"))
+    profiling = ctr.load_and_merge_profiling()
+    assert "time.clang-tidy.total.wall" in profiling["hello.cxx"].keys()
+    assert "time.clang-tidy.total.user" in profiling["hello.cxx"].keys()
+    assert "time.clang-tidy.total.sys" in profiling["hello.cxx"].keys()
+    summary = ctr.make_timing_summary(profiling)
+    assert len(summary.split("\n")) == 21
