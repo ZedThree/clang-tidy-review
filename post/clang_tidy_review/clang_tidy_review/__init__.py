@@ -6,6 +6,7 @@
 import argparse
 import base64
 import fnmatch
+import glob
 import itertools
 import json
 import os
@@ -177,7 +178,7 @@ def build_clang_tidy_warnings(
         f"-line-filter={line_filter}",
         f"--export-fixes={FIXES_FILE}",
         "--enable-check-profile",
-        f"-store-check-profile={PROFILE_DIR}"
+        f"-store-check-profile={PROFILE_DIR}",
     ]
 
     if config:
@@ -188,7 +189,6 @@ def build_clang_tidy_warnings(
 
     args += files
 
-    start = datetime.datetime.now()
     try:
         with message_group(f"Running:\n\t{args}"):
             env = dict(os.environ)
@@ -204,9 +204,6 @@ def build_clang_tidy_warnings(
         print(
             f"\n\nclang-tidy failed with return code {e.returncode} and error:\n{e.stderr}\nOutput was:\n{e.stdout}"
         )
-    end = datetime.datetime.now()
-
-    print(f"Took: {end - start}")
 
 
 def clang_tidy_version(clang_tidy_binary: pathlib.Path):
@@ -895,6 +892,23 @@ def create_review(
     # Read and parse the CLANG_TIDY_FIXES file
     clang_tidy_warnings = load_clang_tidy_warnings()
 
+    # Read and parse the timing data
+    clang_tidy_profiling = load_and_merge_profiling()
+
+    if clang_tidy_profiling:
+        total_wall = sum(
+            timings["time.clang-tidy.total.wall"] for _, timings in clang_tidy_profiling
+        )
+        total_user = sum(
+            timings["time.clang-tidy.total.user"] for _, timings in clang_tidy_profiling
+        )
+        total_sys = sum(
+            timings["time.clang-tidy.total.sys"] for _, timings in clang_tidy_profiling
+        )
+        print(
+            f"Took: {total_user:.2f}s user {total_sys:.2f} system {total_wall:.2f} total"
+        )
+
     print("clang-tidy had the following warnings:\n", clang_tidy_warnings, flush=True)
 
     diff_lookup = make_file_line_lookup(diff)
@@ -979,6 +993,28 @@ def load_review(review_file: pathlib.Path) -> Optional[PRReview]:
     with open(review_file, "r") as review_file_handle:
         payload = json.load(review_file_handle)
         return payload or None
+
+
+def load_and_merge_profiling() -> Dict:
+    result = dict()
+    for profile_file in glob.iglob(os.path.join(PROFILE_DIR, "*.json")):
+        profile_dict = json.load(open(profile_file))
+        filename = profile_dict["file"]
+        current_profile = result.get(filename, dict())
+        for check, timing in profile_dict["profile"]:
+            current_profile[check] = current_profile.get(check, 0.0) + timing
+        result[filename] = current_profile
+    for filename, timings in result:
+        result["time.clang-tidy.total.wall"] = sum(
+            v for k, v in timings if k.endswith("wall")
+        )
+        result["time.clang-tidy.total.user"] = sum(
+            v for k, v in timings if k.endswith("user")
+        )
+        result["time.clang-tidy.total.sys"] = sum(
+            v for k, v in timings if k.endswith("sys")
+        )
+    return result
 
 
 def load_and_merge_reviews(review_files: List[pathlib.Path]) -> Optional[PRReview]:
