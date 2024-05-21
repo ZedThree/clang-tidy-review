@@ -22,13 +22,14 @@ import contextlib
 import datetime
 import re
 import io
+import textwrap
 import zipfile
 from github import Github, Auth
 from github.GithubException import GithubException
 from github.Requester import Requester
 from github.PaginatedList import PaginatedList
 from github.WorkflowRun import WorkflowRun
-from typing import Any, List, Optional, TypedDict
+from typing import Any, List, Optional, TypedDict, Dict
 
 DIFF_HEADER_LINE_LENGTH = 5
 FIXES_FILE = "clang_tidy_review.yaml"
@@ -813,6 +814,77 @@ def create_review_file(
     return review
 
 
+def make_timing_summary(clang_tidy_profiling: Dict) -> str:
+    if not clang_tidy_profiling:
+        return ""
+    top_amount = 10
+    wall_key = "time.clang-tidy.total.wall"
+    user_key = "time.clang-tidy.total.user"
+    sys_key = "time.clang-tidy.total.sys"
+    total_wall = sum(timings[wall_key] for timings in clang_tidy_profiling.values())
+    total_user = sum(timings[user_key] for timings in clang_tidy_profiling.values())
+    total_sys = sum(timings[sys_key] for timings in clang_tidy_profiling.values())
+    print(f"Took: {total_user:.2f}s user {total_sys:.2f} system {total_wall:.2f} total")
+    file_summary = textwrap.dedent(
+        f"""\
+        ### Top {top_amount} files
+        | File  | user (s)         | system (s)      | total (s)        |
+        | ----- | ---------------- | --------------- | ---------------- |
+        | Total | {total_user:.2f} | {total_sys:.2f} | {total_wall:.2f} |
+        """
+    )
+    topfiles = sorted(
+        (
+            (
+                os.path.relpath(file),
+                timings[user_key],
+                timings[sys_key],
+                timings[wall_key],
+            )
+            for file, timings in clang_tidy_profiling.items()
+        ),
+        key=lambda x: x[3],
+        reverse=True,
+    )
+    for f, u, s, w in list(topfiles)[:top_amount]:
+        file_summary += f"|{f}|{u:.2f}|{s:.2f}|{w:.2f}|\n"
+
+    check_timings = {}
+    for timings in clang_tidy_profiling.values():
+        for check, timing in timings.items():
+            if check in [wall_key, user_key, sys_key]:
+                continue
+            base_check, time_type = check.rsplit(".", 1)
+            t = check_timings.get(base_check, (0.0, 0.0, 0.0))
+            if time_type == "user":
+                t = t[0] + timing, t[1], t[2]
+            elif time_type == "sys":
+                t = t[0], t[1] + timing, t[2]
+            elif time_type == "wall":
+                t = t[0], t[1], t[2] + timing
+            check_timings[base_check] = t
+
+    check_summary = ""
+    if check_timings:
+        check_summary = textwrap.dedent(
+            f"""\
+            ### Top {top_amount} checks
+            | Check | user (s) | system (s) | total (s) |
+            | ----- | -------- | ---------- | --------- |
+            | Total | {total_user:.2f} | {total_sys:.2f} | {total_wall:.2f} |
+            """
+        )
+        topchecks = sorted(
+            ((check_name, *timings) for check_name, timings in check_timings.items()),
+            key=lambda x: x[3],
+            reverse=True,
+        )
+        for c, u, s, w in list(topchecks)[:top_amount]:
+            check_summary += f"|{c}|{u:.2f}|{s:.2f}|{w:.2f}|\n"
+
+    return f"## Timing\n{file_summary}{check_summary}"
+
+
 def filter_files(diff, include: List[str], exclude: List[str]) -> List:
     changed_files = [filename.target_file[2:] for filename in diff]
     files = []
@@ -895,19 +967,10 @@ def create_review(
     # Read and parse the timing data
     clang_tidy_profiling = load_and_merge_profiling()
 
-    if clang_tidy_profiling:
-        total_wall = sum(
-            timings["time.clang-tidy.total.wall"] for _, timings in clang_tidy_profiling
-        )
-        total_user = sum(
-            timings["time.clang-tidy.total.user"] for _, timings in clang_tidy_profiling
-        )
-        total_sys = sum(
-            timings["time.clang-tidy.total.sys"] for _, timings in clang_tidy_profiling
-        )
-        print(
-            f"Took: {total_user:.2f}s user {total_sys:.2f} system {total_wall:.2f} total"
-        )
+    # Post to the action job summary
+    step_summary = ""
+    step_summary += make_timing_summary(clang_tidy_profiling)
+    set_summary(step_summary)
 
     print("clang-tidy had the following warnings:\n", clang_tidy_warnings, flush=True)
 
@@ -1001,19 +1064,20 @@ def load_and_merge_profiling() -> Dict:
         profile_dict = json.load(open(profile_file))
         filename = profile_dict["file"]
         current_profile = result.get(filename, dict())
-        for check, timing in profile_dict["profile"]:
+        for check, timing in profile_dict["profile"].items():
             current_profile[check] = current_profile.get(check, 0.0) + timing
         result[filename] = current_profile
-    for filename, timings in result:
-        result["time.clang-tidy.total.wall"] = sum(
-            v for k, v in timings if k.endswith("wall")
+    for filename, timings in list(result.items()):
+        timings["time.clang-tidy.total.wall"] = sum(
+            v for k, v in timings.items() if k.endswith("wall")
         )
-        result["time.clang-tidy.total.user"] = sum(
-            v for k, v in timings if k.endswith("user")
+        timings["time.clang-tidy.total.user"] = sum(
+            v for k, v in timings.items() if k.endswith("user")
         )
-        result["time.clang-tidy.total.sys"] = sum(
-            v for k, v in timings if k.endswith("sys")
+        timings["time.clang-tidy.total.sys"] = sum(
+            v for k, v in timings.items() if k.endswith("sys")
         )
+        result[filename] = timings
     return result
 
 
@@ -1120,6 +1184,17 @@ def set_output(key: str, val: str) -> bool:
     # append key-val pair to file
     with open(os.environ["GITHUB_OUTPUT"], "a") as f:
         f.write(f"{key}={val}\n")
+
+    return True
+
+
+def set_summary(val: str) -> bool:
+    if "GITHUB_STEP_SUMMARY" not in os.environ:
+        return False
+
+    # append key-val pair to file
+    with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+        f.write(val)
 
     return True
 
