@@ -6,9 +6,17 @@
 import argparse
 import base64
 import fnmatch
+import glob
 import itertools
 import json
+import multiprocessing
 import os
+import queue
+import shutil
+import sys
+import tempfile
+import threading
+import traceback
 from operator import itemgetter
 import pprint
 import pathlib
@@ -27,12 +35,13 @@ from github.GithubException import GithubException
 from github.Requester import Requester
 from github.PaginatedList import PaginatedList
 from github.WorkflowRun import WorkflowRun
-from typing import Any, List, Optional, TypedDict
+from typing import Any, List, Optional, TypedDict, Dict
 
 DIFF_HEADER_LINE_LENGTH = 5
 FIXES_FILE = "clang_tidy_review.yaml"
 METADATA_FILE = "clang-tidy-review-metadata.json"
 REVIEW_FILE = "clang-tidy-review-output.json"
+PROFILE_DIR = "clang-tidy-review-profile"
 MAX_ANNOTATIONS = 10
 
 
@@ -158,52 +167,48 @@ def get_auth_from_arguments(args: argparse.Namespace) -> Auth:
 
 
 def build_clang_tidy_warnings(
-    line_filter,
-    build_dir,
-    clang_tidy_checks,
-    clang_tidy_binary: pathlib.Path,
-    config_file,
-    files,
-    username: str,
+    base_invocation: List,
+    env: dict,
+    tmpdir: str,
+    task_queue: queue.Queue,
+    lock: threading.Lock,
+    failed_files: List,
 ) -> None:
-    """Run clang-tidy on the given files and save output into FIXES_FILE"""
+    """Run clang-tidy on the given files and save output into a temporary file"""
 
-    config = config_file_or_checks(clang_tidy_binary, clang_tidy_checks, config_file)
+    while True:
+        name = task_queue.get()
+        invocation = base_invocation[:]
 
-    args = [
-        clang_tidy_binary,
-        f"-p={build_dir}",
-        f"-line-filter={line_filter}",
-        f"--export-fixes={FIXES_FILE}",
-    ]
+        # Get a temporary file. We immediately close the handle so clang-tidy can
+        # overwrite it.
+        (handle, fixes_file) = tempfile.mkstemp(suffix=".yaml", dir=tmpdir)
+        os.close(handle)
+        invocation.append(f"--export-fixes={fixes_file}")
 
-    if config:
-        print(f"Using config: {config}")
-        args.append(config)
-    else:
-        print("Using recursive directory config")
+        invocation.append(name)
 
-    args += files
-
-    start = datetime.datetime.now()
-    try:
-        with message_group(f"Running:\n\t{args}"):
-            env = dict(os.environ)
-            env["USER"] = username
-            subprocess.run(
-                args,
-                capture_output=True,
-                check=True,
-                encoding="utf-8",
-                env=env,
-            )
-    except subprocess.CalledProcessError as e:
-        print(
-            f"\n\nclang-tidy failed with return code {e.returncode} and error:\n{e.stderr}\nOutput was:\n{e.stdout}"
+        proc = subprocess.Popen(
+            invocation, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env
         )
-    end = datetime.datetime.now()
+        output, err = proc.communicate()
+        end = datetime.datetime.now()
 
-    print(f"Took: {end - start}")
+        if proc.returncode != 0:
+            if proc.returncode < 0:
+                msg = "%s: terminated by signal %d\n" % (name, -proc.returncode)
+                err += msg.encode("utf-8")
+            failed_files.append(name)
+        with lock:
+            subprocess.list2cmdline(invocation)
+            sys.stdout.write(
+                f'{name}: {subprocess.list2cmdline(invocation)}\n{output.decode("utf-8")}'
+            )
+            if len(err) > 0:
+                sys.stdout.flush()
+                sys.stderr.write(err.decode("utf-8"))
+
+        task_queue.task_done()
 
 
 def clang_tidy_version(clang_tidy_binary: pathlib.Path):
@@ -249,11 +254,33 @@ def config_file_or_checks(
     return "--config"
 
 
-def load_clang_tidy_warnings():
-    """Read clang-tidy warnings from FIXES_FILE. Can be produced by build_clang_tidy_warnings"""
+def merge_replacement_files(tmpdir: str, mergefile: str):
+    """Merge all replacement files in a directory into a single file"""
+    # The fixes suggested by clang-tidy >= 4.0.0 are given under
+    # the top level key 'Diagnostics' in the output yaml files
+    mergekey = "Diagnostics"
+    merged = []
+    for replacefile in glob.iglob(os.path.join(tmpdir, "*.yaml")):
+        content = yaml.safe_load(open(replacefile, "r"))
+        if not content:
+            continue  # Skip empty files.
+        merged.extend(content.get(mergekey, []))
+
+    if merged:
+        # MainSourceFile: The key is required by the definition inside
+        # include/clang/Tooling/ReplacementsYaml.h, but the value
+        # is actually never used inside clang-apply-replacements,
+        # so we set it to '' here.
+        output = {"MainSourceFile": "", mergekey: merged}
+        with open(mergefile, "w") as out:
+            yaml.safe_dump(output, out)
+
+
+def load_clang_tidy_warnings(fixes_file) -> Dict:
+    """Read clang-tidy warnings from fixes_file. Can be produced by build_clang_tidy_warnings"""
     try:
-        with open(FIXES_FILE, "r") as fixes_file:
-            return yaml.safe_load(fixes_file)
+        with open(fixes_file, "r") as file:
+            return yaml.safe_load(file)
     except FileNotFoundError:
         return {}
 
@@ -285,6 +312,13 @@ class PullRequest:
 
             self._pull_request = self.repo.get_pull(int(self.pr_number))
         return self._pull_request
+
+    @property
+    def head_sha(self):
+        if self._pull_request is None:
+            raise RuntimeError("Missing PR")
+
+        return self._pull_request.get_commits().reversed[0].sha
 
     def get_pr_diff(self) -> List[unidiff.PatchSet]:
         """Download the PR diff, return a list of PatchedFile"""
@@ -813,6 +847,86 @@ def create_review_file(
     return review
 
 
+def make_timing_summary(
+    clang_tidy_profiling: Dict, real_time: datetime.timedelta, sha: Optional[str] = None
+) -> str:
+    if not clang_tidy_profiling:
+        return ""
+    top_amount = 10
+    wall_key = "time.clang-tidy.total.wall"
+    user_key = "time.clang-tidy.total.user"
+    sys_key = "time.clang-tidy.total.sys"
+    total_wall = sum(timings[wall_key] for timings in clang_tidy_profiling.values())
+    total_user = sum(timings[user_key] for timings in clang_tidy_profiling.values())
+    total_sys = sum(timings[sys_key] for timings in clang_tidy_profiling.values())
+    print(f"Took: {total_user:.2f}s user {total_sys:.2f} system {total_wall:.2f} total")
+    file_summary = f"""\
+### Top {top_amount} files
+| File  | user (s)         | system (s)      | total (s)        |
+| ----- | ---------------- | --------------- | ---------------- |
+| Total | {total_user:.2f} | {total_sys:.2f} | {total_wall:.2f} |
+"""
+    topfiles = sorted(
+        (
+            (
+                os.path.relpath(file),
+                timings[user_key],
+                timings[sys_key],
+                timings[wall_key],
+            )
+            for file, timings in clang_tidy_profiling.items()
+        ),
+        key=lambda x: x[3],
+        reverse=True,
+    )
+
+    if "GITHUB_SERVER_URL" in os.environ and "GITHUB_REPOSITORY" in os.environ:
+        blob = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/blob/{sha}"
+    else:
+        blob = None
+    for f, u, s, w in list(topfiles)[:top_amount]:
+        if blob is not None:
+            f = f"[{f}]({blob}/{f})"
+        file_summary += f"|{f}|{u:.2f}|{s:.2f}|{w:.2f}|\n"
+
+    check_timings = {}
+    for timings in clang_tidy_profiling.values():
+        for check, timing in timings.items():
+            if check in [wall_key, user_key, sys_key]:
+                continue
+            base_check, time_type = check.rsplit(".", 1)
+            check_name = base_check.split(".", 2)[2]
+            t = check_timings.get(check_name, (0.0, 0.0, 0.0))
+            if time_type == "user":
+                t = t[0] + timing, t[1], t[2]
+            elif time_type == "sys":
+                t = t[0], t[1] + timing, t[2]
+            elif time_type == "wall":
+                t = t[0], t[1], t[2] + timing
+            check_timings[check_name] = t
+
+    check_summary = ""
+    if check_timings:
+        check_summary = f"""\
+### Top {top_amount} checks
+| Check | user (s) | system (s) | total (s) |
+| ----- | -------- | ---------- | --------- |
+| Total | {total_user:.2f} | {total_sys:.2f} | {total_wall:.2f} |
+"""
+        topchecks = sorted(
+            ((check_name, *timings) for check_name, timings in check_timings.items()),
+            key=lambda x: x[3],
+            reverse=True,
+        )
+        for c, u, s, w in list(topchecks)[:top_amount]:
+            c = decorate_check_names(f"[{c}]").replace("[[", "[").rstrip("]")
+            check_summary += f"|{c}|{u:.2f}|{s:.2f}|{w:.2f}|\n"
+
+    return (
+        f"## Timing\nReal time: {real_time.seconds:.2f}\n{file_summary}{check_summary}"
+    )
+
+
 def filter_files(diff, include: List[str], exclude: List[str]) -> List:
     changed_files = [filename.target_file[2:] for filename in diff]
     files = []
@@ -832,6 +946,7 @@ def create_review(
     clang_tidy_checks: str,
     clang_tidy_binary: pathlib.Path,
     config_file: str,
+    max_task: int,
     include: List[str],
     exclude: List[str],
 ) -> Optional[PRReview]:
@@ -839,6 +954,9 @@ def create_review(
     If no files were changed, or no warnings could be found, None will be returned.
 
     """
+
+    if max_task == 0:
+        max_task = multiprocessing.cpu_count()
 
     diff = pull_request.get_pr_diff()
     print(f"\nDiff from GitHub PR:\n{diff}\n")
@@ -879,18 +997,81 @@ def create_review(
     username = pull_request.get_pr_author() or "your name here"
 
     # Run clang-tidy with the configured parameters and produce the CLANG_TIDY_FIXES file
-    build_clang_tidy_warnings(
-        line_ranges,
-        build_dir,
-        clang_tidy_checks,
+    return_code = 0
+    export_fixes_dir = tempfile.mkdtemp()
+    env = dict(os.environ, USER=username)
+    config = config_file_or_checks(clang_tidy_binary, clang_tidy_checks, config_file)
+    base_invocation = [
         clang_tidy_binary,
-        config_file,
-        files,
-        username,
-    )
+        f"-p={build_dir}",
+        f"-line-filter={line_ranges}",
+        "--enable-check-profile",
+        f"-store-check-profile={PROFILE_DIR}",
+    ]
+    if config:
+        print(f"Using config: {config}")
+        base_invocation.append(config)
+    else:
+        print("Using recursive directory config")
+
+    print(f"Spawning a task queue with {max_task} processes")
+    start = datetime.datetime.now()
+    try:
+        # Spin up a bunch of tidy-launching threads.
+        task_queue = queue.Queue(max_task)
+        # List of files with a non-zero return code.
+        failed_files = []
+        lock = threading.Lock()
+        for _ in range(max_task):
+            t = threading.Thread(
+                target=build_clang_tidy_warnings,
+                args=(
+                    base_invocation,
+                    env,
+                    export_fixes_dir,
+                    task_queue,
+                    lock,
+                    failed_files,
+                ),
+            )
+            t.daemon = True
+            t.start()
+
+        # Fill the queue with files.
+        for name in files:
+            task_queue.put(name)
+
+        # Wait for all threads to be done.
+        task_queue.join()
+        if len(failed_files):
+            return_code = 1
+
+    except KeyboardInterrupt:
+        # This is a sad hack. Unfortunately subprocess goes
+        # bonkers with ctrl-c and we start forking merrily.
+        print("\nCtrl-C detected, goodbye.")
+        os.kill(0, 9)
+        raise
+    real_duration = datetime.datetime.now() - start
 
     # Read and parse the CLANG_TIDY_FIXES file
-    clang_tidy_warnings = load_clang_tidy_warnings()
+    print("Writing fixes to " + FIXES_FILE + " ...")
+    merge_replacement_files(export_fixes_dir, FIXES_FILE)
+    shutil.rmtree(export_fixes_dir)
+    clang_tidy_warnings = load_clang_tidy_warnings(FIXES_FILE)
+
+    # Read and parse the timing data
+    clang_tidy_profiling = load_and_merge_profiling()
+
+    try:
+        sha = pull_request.head_sha
+    except Exception:
+        sha = os.environ.get("GITHUB_SHA")
+
+    # Post to the action job summary
+    step_summary = ""
+    step_summary += make_timing_summary(clang_tidy_profiling, real_duration, sha)
+    set_summary(step_summary)
 
     print("clang-tidy had the following warnings:\n", clang_tidy_warnings, flush=True)
 
@@ -976,6 +1157,29 @@ def load_review(review_file: pathlib.Path) -> Optional[PRReview]:
     with open(review_file, "r") as review_file_handle:
         payload = json.load(review_file_handle)
         return payload or None
+
+
+def load_and_merge_profiling() -> Dict:
+    result = dict()
+    for profile_file in glob.iglob(os.path.join(PROFILE_DIR, "*.json")):
+        profile_dict = json.load(open(profile_file))
+        filename = profile_dict["file"]
+        current_profile = result.get(filename, dict())
+        for check, timing in profile_dict["profile"].items():
+            current_profile[check] = current_profile.get(check, 0.0) + timing
+        result[filename] = current_profile
+    for filename, timings in list(result.items()):
+        timings["time.clang-tidy.total.wall"] = sum(
+            v for k, v in timings.items() if k.endswith("wall")
+        )
+        timings["time.clang-tidy.total.user"] = sum(
+            v for k, v in timings.items() if k.endswith("user")
+        )
+        timings["time.clang-tidy.total.sys"] = sum(
+            v for k, v in timings.items() if k.endswith("sys")
+        )
+        result[filename] = timings
+    return result
 
 
 def load_and_merge_reviews(review_files: List[pathlib.Path]) -> Optional[PRReview]:
@@ -1085,7 +1289,18 @@ def set_output(key: str, val: str) -> bool:
     return True
 
 
-def decorate_comment_body(comment: str) -> str:
+def set_summary(val: str) -> bool:
+    if "GITHUB_STEP_SUMMARY" not in os.environ:
+        return False
+
+    # append key-val pair to file
+    with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+        f.write(val)
+
+    return True
+
+
+def decorate_check_names(comment: str) -> str:
     """
     Split on first dash into two groups of string in [] at end of line
     exception: if the first group starts with 'clang' such as 'clang-diagnostic-error'
@@ -1099,7 +1314,7 @@ def decorate_comment_body(comment: str) -> str:
 
 
 def decorate_comment(comment: PRReviewComment) -> PRReviewComment:
-    comment["body"] = decorate_comment_body(comment["body"])
+    comment["body"] = decorate_check_names(comment["body"])
     return comment
 
 
