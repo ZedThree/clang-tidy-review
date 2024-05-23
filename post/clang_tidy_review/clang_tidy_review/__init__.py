@@ -1129,8 +1129,10 @@ def post_review(
 
     set_output("total_comments", str(total_comments))
 
+    decorated_review = decorate_comments(review)
+
     print("Removing already posted or extra comments", flush=True)
-    trimmed_review = cull_comments(pull_request, review, max_comments)
+    trimmed_review = cull_comments(pull_request, decorated_review, max_comments)
 
     if not trimmed_review["comments"]:
         print("Everything already posted!")
@@ -1140,10 +1142,8 @@ def post_review(
         pprint.pprint(review, width=130)
         return total_comments
 
-    decorated_review = decorate_comments(trimmed_review)
-
-    print("Posting the review:\n", pprint.pformat(decorated_review), flush=True)
-    pull_request.post_review(decorated_review)
+    print("Posting the review:\n", pprint.pformat(trimmed_review), flush=True)
+    pull_request.post_review(trimmed_review)
 
     return total_comments
 
