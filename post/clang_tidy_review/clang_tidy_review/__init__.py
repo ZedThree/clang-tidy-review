@@ -855,14 +855,15 @@ def make_timing_summary(clang_tidy_profiling: Dict) -> str:
             if check in [wall_key, user_key, sys_key]:
                 continue
             base_check, time_type = check.rsplit(".", 1)
-            t = check_timings.get(base_check, (0.0, 0.0, 0.0))
+            check_name = base_check.split(".", 2)[2]
+            t = check_timings.get(check_name, (0.0, 0.0, 0.0))
             if time_type == "user":
                 t = t[0] + timing, t[1], t[2]
             elif time_type == "sys":
                 t = t[0], t[1] + timing, t[2]
             elif time_type == "wall":
                 t = t[0], t[1], t[2] + timing
-            check_timings[base_check] = t
+            check_timings[check_name] = t
 
     check_summary = ""
     if check_timings:
@@ -880,6 +881,7 @@ def make_timing_summary(clang_tidy_profiling: Dict) -> str:
             reverse=True,
         )
         for c, u, s, w in list(topchecks)[:top_amount]:
+            c = decorate_check_names(f"[{c}]").replace("[[", "[").rstrip("]")
             check_summary += f"|{c}|{u:.2f}|{s:.2f}|{w:.2f}|\n"
 
     return f"## Timing\n{file_summary}{check_summary}"
@@ -1199,7 +1201,7 @@ def set_summary(val: str) -> bool:
     return True
 
 
-def decorate_comment_body(comment: str) -> str:
+def decorate_check_names(comment: str) -> str:
     """
     Split on first dash into two groups of string in [] at end of line
     exception: if the first group starts with 'clang' such as 'clang-diagnostic-error'
@@ -1213,7 +1215,7 @@ def decorate_comment_body(comment: str) -> str:
 
 
 def decorate_comment(comment: PRReviewComment) -> PRReviewComment:
-    comment["body"] = decorate_comment_body(comment["body"])
+    comment["body"] = decorate_check_names(comment["body"])
     return comment
 
 
