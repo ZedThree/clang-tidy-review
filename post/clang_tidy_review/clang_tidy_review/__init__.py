@@ -846,7 +846,13 @@ def make_timing_summary(clang_tidy_profiling: Dict) -> str:
         key=lambda x: x[3],
         reverse=True,
     )
+    if "GITHUB_SERVER_URL" in os.environ and "GITHUB_REPOSITORY" in os.environ and "GITHUB_SHA" in os.environ:
+        blob = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/blob/{os.environ['GITHUB_SHA']}"
+    else:
+        blob = None
     for f, u, s, w in list(topfiles)[:top_amount]:
+        if blob is not None:
+            f = f"[{f}]({blob}/{f})"
         file_summary += f"|{f}|{u:.2f}|{s:.2f}|{w:.2f}|\n"
 
     check_timings = {}
