@@ -286,6 +286,13 @@ class PullRequest:
             self._pull_request = self.repo.get_pull(int(self.pr_number))
         return self._pull_request
 
+    @property
+    def head_sha(self):
+        if self._pull_request is None:
+            raise RuntimeError("Missing PR")
+
+        return self._pull_request.get_commits().reversed[0].sha
+
     def get_pr_diff(self) -> List[unidiff.PatchSet]:
         """Download the PR diff, return a list of PatchedFile"""
 
@@ -813,7 +820,7 @@ def create_review_file(
     return review
 
 
-def make_timing_summary(clang_tidy_profiling: Dict) -> str:
+def make_timing_summary(clang_tidy_profiling: Dict, sha: Optional[str] = None) -> str:
     if not clang_tidy_profiling:
         return ""
     top_amount = 10
@@ -843,8 +850,9 @@ def make_timing_summary(clang_tidy_profiling: Dict) -> str:
         key=lambda x: x[3],
         reverse=True,
     )
-    if "GITHUB_SERVER_URL" in os.environ and "GITHUB_REPOSITORY" in os.environ and "GITHUB_SHA" in os.environ:
-        blob = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/blob/{os.environ['GITHUB_SHA']}"
+
+    if "GITHUB_SERVER_URL" in os.environ and "GITHUB_REPOSITORY" in os.environ:
+        blob = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/blob/{sha}"
     else:
         blob = None
     for f, u, s, w in list(topfiles)[:top_amount]:
@@ -970,9 +978,14 @@ def create_review(
     # Read and parse the timing data
     clang_tidy_profiling = load_and_merge_profiling()
 
+    try:
+        sha = pull_request.head_sha
+    except Exception:
+        sha = os.environ.get("GITHUB_SHA")
+
     # Post to the action job summary
     step_summary = ""
-    step_summary += make_timing_summary(clang_tidy_profiling)
+    step_summary += make_timing_summary(clang_tidy_profiling, sha)
     set_summary(step_summary)
 
     print("clang-tidy had the following warnings:\n", clang_tidy_warnings, flush=True)
