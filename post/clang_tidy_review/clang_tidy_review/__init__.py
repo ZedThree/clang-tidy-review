@@ -620,7 +620,7 @@ def format_diff_line(diagnostic, offset_lookup, source_line, line_offset, line_n
             new_line = whitespace.join([f"+ {line}" for line in new_line.splitlines()])
             old_line = whitespace.join([f"- {line}" for line in old_line.splitlines()])
 
-            rel_path = try_relative(replacement_set[0]["FilePath"])
+            rel_path = try_relative(replacement_set[0]["FilePath"]).as_posix()
             code_blocks += textwrap.dedent(
                 f"""\
 
@@ -692,7 +692,7 @@ def format_notes(notes, offset_lookup):
         )
 
         path = try_relative(resolved_path)
-        message = f"**{path}:{line_num}:** {note['Message']}"
+        message = f"**{path.as_posix()}:{line_num}:** {note['Message']}"
         code = format_ordinary_line(source_line, line_offset)
         code_blocks += f"{message}\n{code}"
 
