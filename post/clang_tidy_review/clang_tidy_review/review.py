@@ -131,7 +131,7 @@ def main():
         with message_group(f"Installing additional packages: {apt_packages}"):
             subprocess.run(["apt-get", "update"], check=True)
             subprocess.run(
-                ["apt-get", "install", "-y", "--no-install-recommends"] + apt_packages,
+                ["apt-get", "install", "-y", "--no-install-recommends", *apt_packages],
                 check=True,
             )
 

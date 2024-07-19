@@ -6,7 +6,6 @@
 import argparse
 import base64
 import contextlib
-import datetime
 import fnmatch
 import glob
 import io
@@ -20,13 +19,12 @@ import subprocess
 import textwrap
 import zipfile
 from operator import itemgetter
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Dict, List, Optional, TypedDict
 
 import unidiff
 import urllib3
 import yaml
 from github import Auth, Github
-from github.GithubException import GithubException
 from github.PaginatedList import PaginatedList
 from github.Requester import Requester
 from github.WorkflowRun import WorkflowRun
@@ -313,8 +311,7 @@ class PullRequest:
         # property to be line count within each file's diff. So we need to
         # do this little bit of faff to get a list of file-diffs with
         # their own diff_line_no range
-        diff = [unidiff.PatchSet(str(file))[0] for file in unidiff.PatchSet(diffs)]
-        return diff
+        return [unidiff.PatchSet(str(file))[0] for file in unidiff.PatchSet(diffs)]
 
     def get_pr_author(self) -> str:
         """Get the username of the PR author. This is used in google-readability-todo"""
@@ -410,9 +407,10 @@ def make_file_offset_lookup(filenames):
         # Length of each line
         line_lengths = map(len, lines)
         # Cumulative sum of line lengths => offset at end of each line
-        lookup[os.path.abspath(filename)] = [0] + list(
-            itertools.accumulate(line_lengths)
-        )
+        lookup[os.path.abspath(filename)] = [
+            0,
+            *list(itertools.accumulate(line_lengths)),
+        ]
 
     return lookup
 
@@ -1080,11 +1078,11 @@ def load_review(review_file: pathlib.Path) -> Optional[PRReview]:
 
 
 def load_and_merge_profiling() -> Dict:
-    result = dict()
+    result = {}
     for profile_file in glob.iglob(os.path.join(PROFILE_DIR, "*.json")):
         profile_dict = json.load(open(profile_file))
         filename = profile_dict["file"]
-        current_profile = result.get(filename, dict())
+        current_profile = result.get(filename, {})
         for check, timing in profile_dict["profile"].items():
             current_profile[check] = current_profile.get(check, 0.0) + timing
         result[filename] = current_profile
@@ -1116,7 +1114,7 @@ def load_and_merge_reviews(review_files: List[pathlib.Path]) -> Optional[PRRevie
 
     comments = set()
     for review in reviews:
-        comments.update(map(lambda c: HashableComment(**c), review["comments"]))
+        comments.update(HashableComment(**c) for c in review["comments"])
 
     result["comments"] = [c.__dict__ for c in sorted(comments)]
 
@@ -1166,10 +1164,8 @@ def cull_comments(pull_request: PullRequest, review, max_comments):
 
     """
 
-    unposted_comments = set(map(lambda c: HashableComment(**c), review["comments"]))
-    posted_comments = set(
-        map(lambda c: HashableComment(**c), pull_request.get_pr_comments())
-    )
+    unposted_comments = {HashableComment(**c) for c in review["comments"]}
+    posted_comments = {HashableComment(**c) for c in pull_request.get_pr_comments()}
 
     review["comments"] = [
         c.__dict__ for c in sorted(unposted_comments - posted_comments)
