@@ -5,31 +5,31 @@
 
 import argparse
 import base64
+import contextlib
+import datetime
 import fnmatch
 import glob
+import io
 import itertools
 import json
 import os
-from operator import itemgetter
-import pprint
 import pathlib
+import pprint
+import re
 import subprocess
 import textwrap
+import zipfile
+from operator import itemgetter
+from typing import Any, Dict, List, Optional, TypedDict
+
 import unidiff
 import urllib3
 import yaml
-import contextlib
-import datetime
-import re
-import io
-import textwrap
-import zipfile
-from github import Github, Auth
+from github import Auth, Github
 from github.GithubException import GithubException
-from github.Requester import Requester
 from github.PaginatedList import PaginatedList
+from github.Requester import Requester
 from github.WorkflowRun import WorkflowRun
-from typing import Any, List, Optional, TypedDict, Dict
 
 DIFF_HEADER_LINE_LENGTH = 5
 FIXES_FILE = "clang_tidy_review.yaml"
@@ -253,7 +253,7 @@ def config_file_or_checks(
 def load_clang_tidy_warnings():
     """Read clang-tidy warnings from FIXES_FILE. Can be produced by build_clang_tidy_warnings"""
     try:
-        with open(FIXES_FILE, "r") as fixes_file:
+        with open(FIXES_FILE) as fixes_file:
             return yaml.safe_load(fixes_file)
     except FileNotFoundError:
         return {}
@@ -405,7 +405,7 @@ def make_file_offset_lookup(filenames):
     lookup = {}
 
     for filename in filenames:
-        with open(filename, "r") as file:
+        with open(filename) as file:
             lines = file.readlines()
         # Length of each line
         line_lengths = map(len, lines)
@@ -431,16 +431,14 @@ def get_diagnostic_file_path(clang_tidy_diagnostic, build_dir):
             return ""
         elif os.path.isabs(file_path):
             return os.path.normpath(os.path.abspath(file_path))
-        else:
-            # Make the relative path absolute with the build dir
-            if "BuildDirectory" in clang_tidy_diagnostic:
-                return os.path.normpath(
-                    os.path.abspath(
-                        os.path.join(clang_tidy_diagnostic["BuildDirectory"], file_path)
-                    )
+        elif "BuildDirectory" in clang_tidy_diagnostic:
+            return os.path.normpath(
+                os.path.abspath(
+                    os.path.join(clang_tidy_diagnostic["BuildDirectory"], file_path)
                 )
-            else:
-                return os.path.normpath(os.path.abspath(file_path))
+            )
+        else:
+            return os.path.normpath(os.path.abspath(file_path))
 
     # Pre-clang-tidy-9 format
     elif "FilePath" in clang_tidy_diagnostic:
@@ -476,7 +474,7 @@ def find_line_number_from_offset(offset_lookup, filename, offset):
 def read_one_line(filename, line_offset):
     """Read a single line from a source file"""
     # Could cache the files instead of opening them each time?
-    with open(filename, "r") as file:
+    with open(filename) as file:
         file.seek(line_offset)
         return file.readline().rstrip("\n")
 
@@ -660,7 +658,7 @@ def fix_absolute_paths(build_compile_commands, base_dir):
     """
 
     basedir = pathlib.Path(base_dir).resolve()
-    newbasedir = pathlib.Path(".").resolve()
+    newbasedir = pathlib.Path().resolve()
 
     if basedir == newbasedir:
         return
@@ -668,7 +666,7 @@ def fix_absolute_paths(build_compile_commands, base_dir):
     print(f"Found '{build_compile_commands}', updating absolute paths")
     # We might need to change some absolute paths if we're inside
     # a docker container
-    with open(build_compile_commands, "r") as f:
+    with open(build_compile_commands) as f:
         compile_commands = json.load(f)
 
     print(f"Replacing '{basedir}' with '{newbasedir}'", flush=True)
@@ -1033,7 +1031,7 @@ def download_artifacts(pull: PullRequest, workflow_id: int):
         "Authorization": f"Bearer {pull.token}",
     }
     r = urllib3.request("GET", artifact.archive_download_url, headers=headers)
-    if r.status is not 200:
+    if r.status != 200:
         print(
             f"WARNING: Couldn't automatically download artifacts for workflow '{workflow_id}', response was: {r}: {r.reason}"
         )
@@ -1056,7 +1054,7 @@ def load_metadata() -> Optional[Metadata]:
         print(f"WARNING: Could not find metadata file ('{METADATA_FILE}')", flush=True)
         return None
 
-    with open(METADATA_FILE, "r") as metadata_file:
+    with open(METADATA_FILE) as metadata_file:
         return json.load(metadata_file)
 
 
@@ -1076,7 +1074,7 @@ def load_review(review_file: pathlib.Path) -> Optional[PRReview]:
         print(f"WARNING: Could not find review file ('{review_file}')", flush=True)
         return None
 
-    with open(review_file, "r") as review_file_handle:
+    with open(review_file) as review_file_handle:
         payload = json.load(review_file_handle)
         return payload or None
 
@@ -1307,7 +1305,7 @@ def post_annotations(pull_request: PullRequest, review: Optional[PRReview]) -> i
     }
 
     if review is None:
-        return
+        return None
 
     if review["comments"] == []:
         print("No warnings to report, LGTM!")

@@ -10,17 +10,17 @@ import pathlib
 import pprint
 
 from clang_tidy_review import (
-    PullRequest,
-    load_and_merge_reviews,
-    post_review,
-    load_metadata,
-    strip_enclosing_quotes,
-    download_artifacts,
-    post_annotations,
-    bool_argument,
     REVIEW_FILE,
+    PullRequest,
     add_auth_arguments,
+    bool_argument,
+    download_artifacts,
     get_auth_from_arguments,
+    load_and_merge_reviews,
+    load_metadata,
+    post_annotations,
+    post_review,
+    strip_enclosing_quotes,
 )
 
 

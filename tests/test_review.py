@@ -465,7 +465,7 @@ def test_decorate_comment_body():
 
 
 def test_timing_summary(monkeypatch):
-    monkeypatch.setattr(ctr, "PROFILE_DIR", str(TEST_DIR / f"src/clang-tidy-profile"))
+    monkeypatch.setattr(ctr, "PROFILE_DIR", str(TEST_DIR / "src/clang-tidy-profile"))
     profiling = ctr.load_and_merge_profiling()
     assert "time.clang-tidy.total.wall" in profiling["hello.cxx"].keys()
     assert "time.clang-tidy.total.user" in profiling["hello.cxx"].keys()

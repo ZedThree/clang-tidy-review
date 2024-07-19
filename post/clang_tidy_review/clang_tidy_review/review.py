@@ -13,19 +13,18 @@ import subprocess
 
 from clang_tidy_review import (
     PullRequest,
+    add_auth_arguments,
+    bool_argument,
     create_review,
     fix_absolute_paths,
+    get_auth_from_arguments,
     message_group,
+    post_annotations,
     post_review,
     save_metadata,
-    strip_enclosing_quotes,
-    post_annotations,
-    bool_argument,
     set_output,
-    add_auth_arguments,
-    get_auth_from_arguments,
+    strip_enclosing_quotes,
 )
-
 
 BAD_CHARS_APT_PACKAGES_PATTERN = "[;&|($]"
 
