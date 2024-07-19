@@ -61,6 +61,10 @@ inputs:
     description: "Use annotations instead of comments. See README for limitations on annotations"
     required: false
     default: false
+  parallel:
+    description: "Number of tidy instances to be run in parallel. Zero will automatically determine the right number."
+    required: false
+    default: "0"
   pr:
     default: ${{ github.event.pull_request.number }}
   repo:
@@ -88,3 +92,4 @@ runs:
     - --lgtm-comment-body='${{ inputs.lgtm_comment_body }}'
     - --split_workflow=${{ inputs.split_workflow }}
     - --annotations=${{ inputs.annotations }}
+    - --parallel=${{ inputs.parallel }}
