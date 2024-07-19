@@ -5,31 +5,29 @@
 
 import argparse
 import base64
+import contextlib
 import fnmatch
 import glob
+import io
 import itertools
 import json
 import os
-from operator import itemgetter
-import pprint
 import pathlib
+import pprint
+import re
 import subprocess
 import textwrap
+import zipfile
+from operator import itemgetter
+from typing import Dict, List, Optional, TypedDict
+
 import unidiff
 import urllib3
 import yaml
-import contextlib
-import datetime
-import re
-import io
-import textwrap
-import zipfile
-from github import Github, Auth
-from github.GithubException import GithubException
-from github.Requester import Requester
+from github import Auth, Github
 from github.PaginatedList import PaginatedList
+from github.Requester import Requester
 from github.WorkflowRun import WorkflowRun
-from typing import Any, List, Optional, TypedDict, Dict
 
 DIFF_HEADER_LINE_LENGTH = 5
 FIXES_FILE = "clang_tidy_review.yaml"
@@ -141,11 +139,11 @@ def get_auth_from_arguments(args: argparse.Namespace) -> Auth:
         elif args.private_key_base64:
             private_key = base64.b64decode(args.private_key_base64).decode("ascii")
         else:
-            private_key = open(args.private_key_file_path).read()
+            private_key = pathlib.Path(args.private_key_file_path).read_text()
         return Auth.AppAuth(args.app_id, private_key).get_installation_auth(
             args.installation_id
         )
-    elif (
+    if (
         args.app_id
         or args.private_key
         or args.private_key_file_path
@@ -253,7 +251,7 @@ def config_file_or_checks(
 def load_clang_tidy_warnings():
     """Read clang-tidy warnings from FIXES_FILE. Can be produced by build_clang_tidy_warnings"""
     try:
-        with open(FIXES_FILE, "r") as fixes_file:
+        with open(FIXES_FILE) as fixes_file:
             return yaml.safe_load(fixes_file)
     except FileNotFoundError:
         return {}
@@ -313,8 +311,7 @@ class PullRequest:
         # property to be line count within each file's diff. So we need to
         # do this little bit of faff to get a list of file-diffs with
         # their own diff_line_no range
-        diff = [unidiff.PatchSet(str(file))[0] for file in unidiff.PatchSet(diffs)]
-        return diff
+        return [unidiff.PatchSet(str(file))[0] for file in unidiff.PatchSet(diffs)]
 
     def get_pr_author(self) -> str:
         """Get the username of the PR author. This is used in google-readability-todo"""
@@ -405,14 +402,15 @@ def make_file_offset_lookup(filenames):
     lookup = {}
 
     for filename in filenames:
-        with open(filename, "r") as file:
+        with open(filename) as file:
             lines = file.readlines()
         # Length of each line
         line_lengths = map(len, lines)
         # Cumulative sum of line lengths => offset at end of each line
-        lookup[os.path.abspath(filename)] = [0] + list(
-            itertools.accumulate(line_lengths)
-        )
+        lookup[os.path.abspath(filename)] = [
+            0,
+            *list(itertools.accumulate(line_lengths)),
+        ]
 
     return lookup
 
@@ -429,29 +427,24 @@ def get_diagnostic_file_path(clang_tidy_diagnostic, build_dir):
         file_path = clang_tidy_diagnostic["DiagnosticMessage"]["FilePath"]
         if file_path == "":
             return ""
-        elif os.path.isabs(file_path):
+        if os.path.isabs(file_path):
             return os.path.normpath(os.path.abspath(file_path))
-        else:
-            # Make the relative path absolute with the build dir
-            if "BuildDirectory" in clang_tidy_diagnostic:
-                return os.path.normpath(
-                    os.path.abspath(
-                        os.path.join(clang_tidy_diagnostic["BuildDirectory"], file_path)
-                    )
+        if "BuildDirectory" in clang_tidy_diagnostic:
+            return os.path.normpath(
+                os.path.abspath(
+                    os.path.join(clang_tidy_diagnostic["BuildDirectory"], file_path)
                 )
-            else:
-                return os.path.normpath(os.path.abspath(file_path))
+            )
+        return os.path.normpath(os.path.abspath(file_path))
 
     # Pre-clang-tidy-9 format
-    elif "FilePath" in clang_tidy_diagnostic:
+    if "FilePath" in clang_tidy_diagnostic:
         file_path = clang_tidy_diagnostic["FilePath"]
         if file_path == "":
             return ""
-        else:
-            return os.path.normpath(os.path.abspath(os.path.join(build_dir, file_path)))
+        return os.path.normpath(os.path.abspath(os.path.join(build_dir, file_path)))
 
-    else:
-        return ""
+    return ""
 
 
 def find_line_number_from_offset(offset_lookup, filename, offset):
@@ -476,7 +469,7 @@ def find_line_number_from_offset(offset_lookup, filename, offset):
 def read_one_line(filename, line_offset):
     """Read a single line from a source file"""
     # Could cache the files instead of opening them each time?
-    with open(filename, "r") as file:
+    with open(filename) as file:
         file.seek(line_offset)
         return file.readline().rstrip("\n")
 
@@ -660,7 +653,7 @@ def fix_absolute_paths(build_compile_commands, base_dir):
     """
 
     basedir = pathlib.Path(base_dir).resolve()
-    newbasedir = pathlib.Path(".").resolve()
+    newbasedir = pathlib.Path().resolve()
 
     if basedir == newbasedir:
         return
@@ -668,7 +661,7 @@ def fix_absolute_paths(build_compile_commands, base_dir):
     print(f"Found '{build_compile_commands}', updating absolute paths")
     # We might need to change some absolute paths if we're inside
     # a docker container
-    with open(build_compile_commands, "r") as f:
+    with open(build_compile_commands) as f:
         compile_commands = json.load(f)
 
     print(f"Replacing '{basedir}' with '{newbasedir}'", flush=True)
@@ -1033,7 +1026,7 @@ def download_artifacts(pull: PullRequest, workflow_id: int):
         "Authorization": f"Bearer {pull.token}",
     }
     r = urllib3.request("GET", artifact.archive_download_url, headers=headers)
-    if r.status is not 200:
+    if r.status != 200:
         print(
             f"WARNING: Couldn't automatically download artifacts for workflow '{workflow_id}', response was: {r}: {r.reason}"
         )
@@ -1056,7 +1049,7 @@ def load_metadata() -> Optional[Metadata]:
         print(f"WARNING: Could not find metadata file ('{METADATA_FILE}')", flush=True)
         return None
 
-    with open(METADATA_FILE, "r") as metadata_file:
+    with open(METADATA_FILE) as metadata_file:
         return json.load(metadata_file)
 
 
@@ -1076,17 +1069,17 @@ def load_review(review_file: pathlib.Path) -> Optional[PRReview]:
         print(f"WARNING: Could not find review file ('{review_file}')", flush=True)
         return None
 
-    with open(review_file, "r") as review_file_handle:
+    with open(review_file) as review_file_handle:
         payload = json.load(review_file_handle)
         return payload or None
 
 
 def load_and_merge_profiling() -> Dict:
-    result = dict()
+    result = {}
     for profile_file in glob.iglob(os.path.join(PROFILE_DIR, "*.json")):
         profile_dict = json.load(open(profile_file))
         filename = profile_dict["file"]
-        current_profile = result.get(filename, dict())
+        current_profile = result.get(filename, {})
         for check, timing in profile_dict["profile"].items():
             current_profile[check] = current_profile.get(check, 0.0) + timing
         result[filename] = current_profile
@@ -1118,7 +1111,7 @@ def load_and_merge_reviews(review_files: List[pathlib.Path]) -> Optional[PRRevie
 
     comments = set()
     for review in reviews:
-        comments.update(map(lambda c: HashableComment(**c), review["comments"]))
+        comments.update(HashableComment(**c) for c in review["comments"])
 
     result["comments"] = [c.__dict__ for c in sorted(comments)]
 
@@ -1168,10 +1161,8 @@ def cull_comments(pull_request: PullRequest, review, max_comments):
 
     """
 
-    unposted_comments = set(map(lambda c: HashableComment(**c), review["comments"]))
-    posted_comments = set(
-        map(lambda c: HashableComment(**c), pull_request.get_pr_comments())
-    )
+    unposted_comments = {HashableComment(**c) for c in review["comments"]}
+    posted_comments = {HashableComment(**c) for c in pull_request.get_pr_comments()}
 
     review["comments"] = [
         c.__dict__ for c in sorted(unposted_comments - posted_comments)
@@ -1307,7 +1298,7 @@ def post_annotations(pull_request: PullRequest, review: Optional[PRReview]) -> i
     }
 
     if review is None:
-        return
+        return None
 
     if review["comments"] == []:
         print("No warnings to report, LGTM!")
