@@ -992,8 +992,7 @@ def create_review(
         sha = os.environ.get("GITHUB_SHA")
 
     # Post to the action job summary
-    step_summary = ""
-    step_summary += make_timing_summary(clang_tidy_profiling, sha)
+    step_summary = make_timing_summary(clang_tidy_profiling, sha)
     set_summary(step_summary)
 
     print("clang-tidy had the following warnings:\n", clang_tidy_warnings, flush=True)
