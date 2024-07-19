@@ -139,7 +139,7 @@ def get_auth_from_arguments(args: argparse.Namespace) -> Auth:
         elif args.private_key_base64:
             private_key = base64.b64decode(args.private_key_base64).decode("ascii")
         else:
-            private_key = open(args.private_key_file_path).read()
+            private_key = pathlib.Path(args.private_key_file_path).read_text()
         return Auth.AppAuth(args.app_id, private_key).get_installation_auth(
             args.installation_id
         )
