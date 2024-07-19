@@ -6,6 +6,7 @@
 import argparse
 import base64
 import fnmatch
+import glob
 import itertools
 import json
 import os
@@ -21,18 +22,20 @@ import contextlib
 import datetime
 import re
 import io
+import textwrap
 import zipfile
 from github import Github, Auth
 from github.GithubException import GithubException
 from github.Requester import Requester
 from github.PaginatedList import PaginatedList
 from github.WorkflowRun import WorkflowRun
-from typing import Any, List, Optional, TypedDict
+from typing import Any, List, Optional, TypedDict, Dict
 
 DIFF_HEADER_LINE_LENGTH = 5
 FIXES_FILE = "clang_tidy_review.yaml"
 METADATA_FILE = "clang-tidy-review-metadata.json"
 REVIEW_FILE = "clang-tidy-review-output.json"
+PROFILE_DIR = "clang-tidy-review-profile"
 MAX_ANNOTATIONS = 10
 
 
@@ -175,6 +178,8 @@ def build_clang_tidy_warnings(
         f"-p={build_dir}",
         f"-line-filter={line_filter}",
         f"--export-fixes={FIXES_FILE}",
+        "--enable-check-profile",
+        f"-store-check-profile={PROFILE_DIR}",
     ]
 
     if config:
@@ -185,7 +190,6 @@ def build_clang_tidy_warnings(
 
     args += files
 
-    start = datetime.datetime.now()
     try:
         with message_group(f"Running:\n\t{args}"):
             env = dict(os.environ)
@@ -201,9 +205,6 @@ def build_clang_tidy_warnings(
         print(
             f"\n\nclang-tidy failed with return code {e.returncode} and error:\n{e.stderr}\nOutput was:\n{e.stdout}"
         )
-    end = datetime.datetime.now()
-
-    print(f"Took: {end - start}")
 
 
 def clang_tidy_version(clang_tidy_binary: pathlib.Path):
@@ -285,6 +286,13 @@ class PullRequest:
 
             self._pull_request = self.repo.get_pull(int(self.pr_number))
         return self._pull_request
+
+    @property
+    def head_sha(self):
+        if self._pull_request is None:
+            raise RuntimeError("Missing PR")
+
+        return self._pull_request.get_commits().reversed[0].sha
 
     def get_pr_diff(self) -> List[unidiff.PatchedFile]:
         """Download the PR diff, return a list of PatchedFile"""
@@ -816,6 +824,86 @@ def create_review_file(
     return review
 
 
+def make_timing_summary(clang_tidy_profiling: Dict, sha: Optional[str] = None) -> str:
+    if not clang_tidy_profiling:
+        return ""
+    top_amount = 10
+    wall_key = "time.clang-tidy.total.wall"
+    user_key = "time.clang-tidy.total.user"
+    sys_key = "time.clang-tidy.total.sys"
+    total_wall = sum(timings[wall_key] for timings in clang_tidy_profiling.values())
+    total_user = sum(timings[user_key] for timings in clang_tidy_profiling.values())
+    total_sys = sum(timings[sys_key] for timings in clang_tidy_profiling.values())
+    print(f"Took: {total_user:.2f}s user {total_sys:.2f} system {total_wall:.2f} total")
+    file_summary = textwrap.dedent(
+        f"""\
+        ### Top {top_amount} files
+        | File  | user (s)         | system (s)      | total (s)        |
+        | ----- | ---------------- | --------------- | ---------------- |
+        | Total | {total_user:.2f} | {total_sys:.2f} | {total_wall:.2f} |
+        """
+    )
+    topfiles = sorted(
+        (
+            (
+                os.path.relpath(file),
+                timings[user_key],
+                timings[sys_key],
+                timings[wall_key],
+            )
+            for file, timings in clang_tidy_profiling.items()
+        ),
+        key=lambda x: x[3],
+        reverse=True,
+    )
+
+    if "GITHUB_SERVER_URL" in os.environ and "GITHUB_REPOSITORY" in os.environ:
+        blob = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/blob/{sha}"
+    else:
+        blob = None
+    for f, u, s, w in list(topfiles)[:top_amount]:
+        if blob is not None:
+            f = f"[{f}]({blob}/{f})"
+        file_summary += f"|{f}|{u:.2f}|{s:.2f}|{w:.2f}|\n"
+
+    check_timings = {}
+    for timings in clang_tidy_profiling.values():
+        for check, timing in timings.items():
+            if check in [wall_key, user_key, sys_key]:
+                continue
+            base_check, time_type = check.rsplit(".", 1)
+            check_name = base_check.split(".", 2)[2]
+            t = check_timings.get(check_name, (0.0, 0.0, 0.0))
+            if time_type == "user":
+                t = t[0] + timing, t[1], t[2]
+            elif time_type == "sys":
+                t = t[0], t[1] + timing, t[2]
+            elif time_type == "wall":
+                t = t[0], t[1], t[2] + timing
+            check_timings[check_name] = t
+
+    check_summary = ""
+    if check_timings:
+        check_summary = textwrap.dedent(
+            f"""\
+            ### Top {top_amount} checks
+            | Check | user (s) | system (s) | total (s) |
+            | ----- | -------- | ---------- | --------- |
+            | Total | {total_user:.2f} | {total_sys:.2f} | {total_wall:.2f} |
+            """
+        )
+        topchecks = sorted(
+            ((check_name, *timings) for check_name, timings in check_timings.items()),
+            key=lambda x: x[3],
+            reverse=True,
+        )
+        for c, u, s, w in list(topchecks)[:top_amount]:
+            c = decorate_check_names(f"[{c}]").replace("[[", "[").rstrip("]")
+            check_summary += f"|{c}|{u:.2f}|{s:.2f}|{w:.2f}|\n"
+
+    return f"## Timing\n{file_summary}{check_summary}"
+
+
 def filter_files(diff, include: List[str], exclude: List[str]) -> List:
     changed_files = [filename.target_file[2:] for filename in diff]
     files = []
@@ -894,6 +982,18 @@ def create_review(
 
     # Read and parse the CLANG_TIDY_FIXES file
     clang_tidy_warnings = load_clang_tidy_warnings()
+
+    # Read and parse the timing data
+    clang_tidy_profiling = load_and_merge_profiling()
+
+    try:
+        sha = pull_request.head_sha
+    except Exception:
+        sha = os.environ.get("GITHUB_SHA")
+
+    # Post to the action job summary
+    step_summary = make_timing_summary(clang_tidy_profiling, sha)
+    set_summary(step_summary)
 
     print("clang-tidy had the following warnings:\n", clang_tidy_warnings, flush=True)
 
@@ -979,6 +1079,29 @@ def load_review(review_file: pathlib.Path) -> Optional[PRReview]:
     with open(review_file, "r") as review_file_handle:
         payload = json.load(review_file_handle)
         return payload or None
+
+
+def load_and_merge_profiling() -> Dict:
+    result = dict()
+    for profile_file in glob.iglob(os.path.join(PROFILE_DIR, "*.json")):
+        profile_dict = json.load(open(profile_file))
+        filename = profile_dict["file"]
+        current_profile = result.get(filename, dict())
+        for check, timing in profile_dict["profile"].items():
+            current_profile[check] = current_profile.get(check, 0.0) + timing
+        result[filename] = current_profile
+    for filename, timings in list(result.items()):
+        timings["time.clang-tidy.total.wall"] = sum(
+            v for k, v in timings.items() if k.endswith("wall")
+        )
+        timings["time.clang-tidy.total.user"] = sum(
+            v for k, v in timings.items() if k.endswith("user")
+        )
+        timings["time.clang-tidy.total.sys"] = sum(
+            v for k, v in timings.items() if k.endswith("sys")
+        )
+        result[filename] = timings
+    return result
 
 
 def load_and_merge_reviews(review_files: List[pathlib.Path]) -> Optional[PRReview]:
@@ -1088,7 +1211,18 @@ def set_output(key: str, val: str) -> bool:
     return True
 
 
-def decorate_comment_body(comment: str) -> str:
+def set_summary(val: str) -> bool:
+    if "GITHUB_STEP_SUMMARY" not in os.environ:
+        return False
+
+    # append key-val pair to file
+    with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+        f.write(val)
+
+    return True
+
+
+def decorate_check_names(comment: str) -> str:
     """
     Split on first dash into two groups of string in [] at end of line
     exception: if the first group starts with 'clang' such as 'clang-diagnostic-error'
@@ -1102,7 +1236,7 @@ def decorate_comment_body(comment: str) -> str:
 
 
 def decorate_comment(comment: PRReviewComment) -> PRReviewComment:
-    comment["body"] = decorate_comment_body(comment["body"])
+    comment["body"] = decorate_check_names(comment["body"])
     return comment
 
 
