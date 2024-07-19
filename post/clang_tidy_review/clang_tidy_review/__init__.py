@@ -143,7 +143,7 @@ def get_auth_from_arguments(args: argparse.Namespace) -> Auth:
         return Auth.AppAuth(args.app_id, private_key).get_installation_auth(
             args.installation_id
         )
-    elif (
+    if (
         args.app_id
         or args.private_key
         or args.private_key_file_path
@@ -427,27 +427,24 @@ def get_diagnostic_file_path(clang_tidy_diagnostic, build_dir):
         file_path = clang_tidy_diagnostic["DiagnosticMessage"]["FilePath"]
         if file_path == "":
             return ""
-        elif os.path.isabs(file_path):
+        if os.path.isabs(file_path):
             return os.path.normpath(os.path.abspath(file_path))
-        elif "BuildDirectory" in clang_tidy_diagnostic:
+        if "BuildDirectory" in clang_tidy_diagnostic:
             return os.path.normpath(
                 os.path.abspath(
                     os.path.join(clang_tidy_diagnostic["BuildDirectory"], file_path)
                 )
             )
-        else:
-            return os.path.normpath(os.path.abspath(file_path))
+        return os.path.normpath(os.path.abspath(file_path))
 
     # Pre-clang-tidy-9 format
-    elif "FilePath" in clang_tidy_diagnostic:
+    if "FilePath" in clang_tidy_diagnostic:
         file_path = clang_tidy_diagnostic["FilePath"]
         if file_path == "":
             return ""
-        else:
-            return os.path.normpath(os.path.abspath(os.path.join(build_dir, file_path)))
+        return os.path.normpath(os.path.abspath(os.path.join(build_dir, file_path)))
 
-    else:
-        return ""
+    return ""
 
 
 def find_line_number_from_offset(offset_lookup, filename, offset):
