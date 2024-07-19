@@ -286,7 +286,7 @@ class PullRequest:
             self._pull_request = self.repo.get_pull(int(self.pr_number))
         return self._pull_request
 
-    def get_pr_diff(self) -> List[unidiff.PatchSet]:
+    def get_pr_diff(self) -> List[unidiff.PatchedFile]:
         """Download the PR diff, return a list of PatchedFile"""
 
         _, data = self.repo._requester.requestJsonAndCheck(
@@ -294,6 +294,9 @@ class PullRequest:
             self.pull_request.url,
             headers={"Accept": f"application/vnd.github.{'v3.diff'}"},
         )
+        if not data:
+            return []
+
         diffs = data["data"]
 
         # PatchSet is the easiest way to construct what we want, but the
