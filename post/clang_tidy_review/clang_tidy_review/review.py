@@ -6,10 +6,9 @@
 # See LICENSE for more information
 
 import argparse
-import os
-import pathlib
 import re
 import subprocess
+from pathlib import Path
 
 from clang_tidy_review import (
     PullRequest,
@@ -39,7 +38,7 @@ def main():
         "--clang_tidy_binary",
         help="clang-tidy binary",
         default="clang-tidy-14",
-        type=pathlib.Path,
+        type=Path,
     )
     parser.add_argument(
         "--build_dir", help="Directory with compile_commands.json", default="."
@@ -145,7 +144,7 @@ def main():
         with message_group(f"Running cmake: {cmake_command}"):
             subprocess.run(cmake_command, shell=True, check=True)
 
-    elif os.path.exists(build_compile_commands):
+    elif Path(build_compile_commands).exists():
         fix_absolute_paths(build_compile_commands, args.base_dir)
 
     pull_request = PullRequest(args.repo, args.pr, get_auth_from_arguments(args))

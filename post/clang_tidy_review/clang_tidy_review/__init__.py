@@ -7,7 +7,6 @@ import argparse
 import base64
 import contextlib
 import fnmatch
-import glob
 import io
 import itertools
 import json
@@ -19,6 +18,7 @@ import subprocess
 import textwrap
 import zipfile
 from operator import itemgetter
+from pathlib import Path
 from typing import Dict, List, Optional, TypedDict
 
 import unidiff
@@ -251,7 +251,7 @@ def config_file_or_checks(
 def load_clang_tidy_warnings():
     """Read clang-tidy warnings from FIXES_FILE. Can be produced by build_clang_tidy_warnings"""
     try:
-        with open(FIXES_FILE) as fixes_file:
+        with Path(FIXES_FILE).open() as fixes_file:
             return yaml.safe_load(fixes_file)
     except FileNotFoundError:
         return {}
@@ -402,12 +402,12 @@ def make_file_offset_lookup(filenames):
     lookup = {}
 
     for filename in filenames:
-        with open(filename) as file:
+        with Path(filename).open() as file:
             lines = file.readlines()
         # Length of each line
         line_lengths = map(len, lines)
         # Cumulative sum of line lengths => offset at end of each line
-        lookup[os.path.abspath(filename)] = [
+        lookup[Path(filename).resolve().as_posix()] = [
             0,
             *list(itertools.accumulate(line_lengths)),
         ]
@@ -427,22 +427,21 @@ def get_diagnostic_file_path(clang_tidy_diagnostic, build_dir):
         file_path = clang_tidy_diagnostic["DiagnosticMessage"]["FilePath"]
         if file_path == "":
             return ""
-        if os.path.isabs(file_path):
-            return os.path.normpath(os.path.abspath(file_path))
+        file_path = Path(file_path)
+        if file_path.is_absolute():
+            return os.path.normpath(file_path.resolve())
         if "BuildDirectory" in clang_tidy_diagnostic:
             return os.path.normpath(
-                os.path.abspath(
-                    os.path.join(clang_tidy_diagnostic["BuildDirectory"], file_path)
-                )
+                (Path(clang_tidy_diagnostic["BuildDirectory"]) / file_path).resolve()
             )
-        return os.path.normpath(os.path.abspath(file_path))
+        return os.path.normpath(file_path.resolve())
 
     # Pre-clang-tidy-9 format
     if "FilePath" in clang_tidy_diagnostic:
         file_path = clang_tidy_diagnostic["FilePath"]
         if file_path == "":
             return ""
-        return os.path.normpath(os.path.abspath(os.path.join(build_dir, file_path)))
+        return os.path.normpath((Path(build_dir) / file_path).resolve())
 
     return ""
 
@@ -469,7 +468,7 @@ def find_line_number_from_offset(offset_lookup, filename, offset):
 def read_one_line(filename, line_offset):
     """Read a single line from a source file"""
     # Could cache the files instead of opening them each time?
-    with open(filename) as file:
+    with Path(filename).open() as file:
         file.seek(line_offset)
         return file.readline().rstrip("\n")
 
@@ -493,7 +492,7 @@ def collate_replacement_sets(diagnostic, offset_lookup):
         # from the FilePath and we'll end up looking for a path that's not in
         # the lookup dict
         # To fix this, we'll convert all the FilePaths to absolute paths
-        replacement["FilePath"] = os.path.abspath(replacement["FilePath"])
+        replacement["FilePath"] = Path(replacement["FilePath"]).resolve().as_posix()
 
         # It's possible the replacement is needed in another file?
         # Not really sure how that could come about, but let's
@@ -661,7 +660,7 @@ def fix_absolute_paths(build_compile_commands, base_dir):
     print(f"Found '{build_compile_commands}', updating absolute paths")
     # We might need to change some absolute paths if we're inside
     # a docker container
-    with open(build_compile_commands) as f:
+    with Path(build_compile_commands).open() as f:
         compile_commands = json.load(f)
 
     print(f"Replacing '{basedir}' with '{newbasedir}'", flush=True)
@@ -670,7 +669,7 @@ def fix_absolute_paths(build_compile_commands, base_dir):
         str(basedir), str(newbasedir)
     )
 
-    with open(build_compile_commands, "w") as f:
+    with Path(build_compile_commands).open("w") as f:
         f.write(modified_compile_commands)
 
 
@@ -931,7 +930,7 @@ def create_review(
 
     if files == []:
         with message_group("No files to check!"):
-            with open(REVIEW_FILE, "w") as review_file:
+            with Path(REVIEW_FILE).open("w") as review_file:
                 json.dump(
                     {
                         "body": "clang-tidy found no files to check",
@@ -947,7 +946,7 @@ def create_review(
     line_ranges = get_line_ranges(diff, files)
     if line_ranges == "[]":
         with message_group("No lines added in this PR!"):
-            with open(REVIEW_FILE, "w") as review_file:
+            with Path(REVIEW_FILE).open("w") as review_file:
                 json.dump(
                     {
                         "body": "clang-tidy found no lines added",
@@ -997,7 +996,7 @@ def create_review(
         review = create_review_file(
             clang_tidy_warnings, diff_lookup, offset_lookup, build_dir
         )
-        with open(REVIEW_FILE, "w") as review_file:
+        with Path(REVIEW_FILE).open("w") as review_file:
             json.dump(review, review_file)
 
         return review
@@ -1049,7 +1048,7 @@ def load_metadata() -> Optional[Metadata]:
         print(f"WARNING: Could not find metadata file ('{METADATA_FILE}')", flush=True)
         return None
 
-    with open(METADATA_FILE) as metadata_file:
+    with Path(METADATA_FILE).open() as metadata_file:
         return json.load(metadata_file)
 
 
@@ -1058,7 +1057,7 @@ def save_metadata(pr_number: int) -> None:
 
     metadata: Metadata = {"pr_number": pr_number}
 
-    with open(METADATA_FILE, "w") as metadata_file:
+    with Path(METADATA_FILE).open("w") as metadata_file:
         json.dump(metadata, metadata_file)
 
 
@@ -1069,15 +1068,15 @@ def load_review(review_file: pathlib.Path) -> Optional[PRReview]:
         print(f"WARNING: Could not find review file ('{review_file}')", flush=True)
         return None
 
-    with open(review_file) as review_file_handle:
+    with review_file.open() as review_file_handle:
         payload = json.load(review_file_handle)
         return payload or None
 
 
 def load_and_merge_profiling() -> Dict:
     result = {}
-    for profile_file in glob.iglob(os.path.join(PROFILE_DIR, "*.json")):
-        profile_dict = json.load(open(profile_file))
+    for profile_file in Path(PROFILE_DIR).glob("*.json"):
+        profile_dict = json.load(profile_file.open())
         filename = profile_dict["file"]
         current_profile = result.get(filename, {})
         for check, timing in profile_dict["profile"].items():
@@ -1150,7 +1149,7 @@ def get_line_ranges(diff, files):
         # Adding a copy of the line filters with backslashes allows for both cl.exe and clang.exe to work.
         if os.path.sep == "\\":
             # Converts name to backslashes for the cl.exe line filter.
-            name = os.path.join(*name.split("/"))
+            name = Path.joinpath(*name.split("/"))
             line_filter_json.append({"name": name, "lines": lines})
     return json.dumps(line_filter_json, separators=(",", ":"))
 
@@ -1196,7 +1195,7 @@ def set_output(key: str, val: str) -> bool:
         return False
 
     # append key-val pair to file
-    with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+    with Path(os.environ["GITHUB_OUTPUT"]).open("a") as f:
         f.write(f"{key}={val}\n")
 
     return True
@@ -1207,7 +1206,7 @@ def set_summary(val: str) -> bool:
         return False
 
     # append key-val pair to file
-    with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+    with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as f:
         f.write(val)
 
     return True
