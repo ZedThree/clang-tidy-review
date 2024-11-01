@@ -1224,7 +1224,7 @@ def decorate_check_names(comment: str) -> str:
     url = f"https://clang.llvm.org/{version}/clang-tidy/checks"
     regex = r"(\[((?:clang-analyzer)|(?:(?!clang)[\w]+))-([\.\w-]+)\]$)"
     subst = f"[\\g<1>({url}/\\g<2>/\\g<3>.html)]"
-    return re.sub(regex, subst, comment, 1, re.MULTILINE)
+    return re.sub(regex, subst, comment, count=1, flags=re.MULTILINE)
 
 
 def decorate_comment(comment: PRReviewComment) -> PRReviewComment:
