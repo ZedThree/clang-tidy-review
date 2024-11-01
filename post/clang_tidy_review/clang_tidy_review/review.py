@@ -164,7 +164,7 @@ def main():
 
     if args.split_workflow:
         total_comments = 0 if review is None else len(review["comments"])
-        set_output("total_comments", total_comments)
+        set_output("total_comments", str(total_comments))
         print("split_workflow is enabled, not posting review")
         return
 

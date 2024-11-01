@@ -19,13 +19,14 @@ import textwrap
 import zipfile
 from operator import itemgetter
 from pathlib import Path
-from typing import Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 
 import unidiff
 import urllib3
 import yaml
 from github import Auth, Github
 from github.PaginatedList import PaginatedList
+from github.PullRequest import ReviewComment
 from github.Requester import Requester
 from github.WorkflowRun import WorkflowRun
 
@@ -46,20 +47,10 @@ class Metadata(TypedDict):
     pr_number: int
 
 
-class PRReviewComment(TypedDict):
-    path: str
-    position: Optional[int]
-    body: str
-    line: Optional[int]
-    side: Optional[str]
-    start_line: Optional[int]
-    start_side: Optional[str]
-
-
 class PRReview(TypedDict):
     body: str
     event: str
-    comments: List[PRReviewComment]
+    comments: list[ReviewComment]
 
 
 class HashableComment:
@@ -125,7 +116,7 @@ Permissions required: Contents (Read) and Pull requests (Read and Write)"""
     group_app.add_argument("--installation-id", type=int, help="app installation ID")
 
 
-def get_auth_from_arguments(args: argparse.Namespace) -> Auth:
+def get_auth_from_arguments(args: argparse.Namespace) -> Auth.Auth:
     if args.token:
         return Auth.Token(args.token)
 
@@ -260,7 +251,7 @@ def load_clang_tidy_warnings():
 class PullRequest:
     """Add some convenience functions not in PyGithub"""
 
-    def __init__(self, repo: str, pr_number: Optional[int], auth: Auth) -> None:
+    def __init__(self, repo: str, pr_number: Optional[int], auth: Auth.Auth) -> None:
         self.repo_name = repo
         self.pr_number = pr_number
         self.auth = auth
@@ -539,7 +530,7 @@ def replace_one_line(replacement_set, line_num, offset_lookup):
     line_offset = offset_lookup[filename][line_num]
 
     # List of (start, end) offsets from line_offset
-    insert_offsets = [(0, 0)]
+    insert_offsets: list[tuple[Optional[int], Optional[int]]] = [(0, 0)]
     # Read all the source lines into a dict so we only get one copy of
     # each line, though we might read the same line in multiple times
     source_lines = {}
@@ -755,7 +746,7 @@ def create_review_file(
     if "Diagnostics" not in clang_tidy_warnings:
         return None
 
-    comments: List[PRReviewComment] = []
+    comments: List[ReviewComment] = []
 
     for diagnostic in clang_tidy_warnings["Diagnostics"]:
         try:
@@ -1227,7 +1218,7 @@ def decorate_check_names(comment: str) -> str:
     return re.sub(regex, subst, comment, count=1, flags=re.MULTILINE)
 
 
-def decorate_comment(comment: PRReviewComment) -> PRReviewComment:
+def decorate_comment(comment: ReviewComment) -> ReviewComment:
     comment["body"] = decorate_check_names(comment["body"])
     return comment
 
@@ -1288,10 +1279,12 @@ def convert_comment_to_annotations(comment):
     }
 
 
-def post_annotations(pull_request: PullRequest, review: Optional[PRReview]) -> int:
+def post_annotations(
+    pull_request: PullRequest, review: Optional[PRReview]
+) -> Optional[int]:
     """Post the first 10 comments in the review as annotations"""
 
-    body = {
+    body: dict[str, Any] = {
         "name": "clang-tidy-review",
         "head_sha": pull_request.pull_request.head.sha,
         "status": "completed",
@@ -1309,7 +1302,7 @@ def post_annotations(pull_request: PullRequest, review: Optional[PRReview]) -> i
     for comment in review["comments"]:
         first_line = comment["body"].splitlines()[0]
         comments.append(
-            f"{comment['path']}:{comment.get('start_line', comment['line'])}: {first_line}"
+            f"{comment['path']}:{comment.get('start_line', comment.get('line', 0))}: {first_line}"
         )
 
     total_comments = len(review["comments"])
