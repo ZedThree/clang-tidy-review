@@ -238,9 +238,7 @@ def test_line_ranges():
 
 
 def test_load_clang_tidy_warnings():
-    warnings = ctr.load_clang_tidy_warnings(
-        str(TEST_DIR / f"src/test_{ctr.FIXES_FILE}")
-    )
+    warnings = ctr.load_clang_tidy_warnings(TEST_DIR / f"src/test_{ctr.FIXES_FILE}")
 
     assert sorted(list(warnings.keys())) == ["Diagnostics", "MainSourceFile"]
     assert warnings["MainSourceFile"] == "/clang_tidy_review/src/hello.cxx"

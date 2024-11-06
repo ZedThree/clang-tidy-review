@@ -8,7 +8,6 @@ import base64
 import contextlib
 import datetime
 import fnmatch
-import glob
 import io
 import itertools
 import json
@@ -24,7 +23,6 @@ import sys
 import tempfile
 import textwrap
 import threading
-import traceback
 import zipfile
 from operator import itemgetter
 from pathlib import Path
@@ -40,10 +38,10 @@ from github.Requester import Requester
 from github.WorkflowRun import WorkflowRun
 
 DIFF_HEADER_LINE_LENGTH = 5
-FIXES_FILE = "clang_tidy_review.yaml"
-METADATA_FILE = "clang-tidy-review-metadata.json"
-REVIEW_FILE = "clang-tidy-review-output.json"
-PROFILE_DIR = "clang-tidy-review-profile"
+FIXES_FILE = Path("clang_tidy_review.yaml")
+METADATA_FILE = Path("clang-tidy-review-metadata.json")
+REVIEW_FILE = Path("clang-tidy-review-output.json")
+PROFILE_DIR = Path("clang-tidy-review-profile")
 MAX_ANNOTATIONS = 10
 
 
@@ -161,7 +159,7 @@ def get_auth_from_arguments(args: argparse.Namespace) -> Auth.Auth:
 def build_clang_tidy_warnings(
     base_invocation: List,
     env: dict,
-    tmpdir: str,
+    tmpdir: Path,
     task_queue: queue.Queue,
     lock: threading.Lock,
     failed_files: List,
@@ -184,7 +182,6 @@ def build_clang_tidy_warnings(
             invocation, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env
         )
         output, err = proc.communicate()
-        end = datetime.datetime.now()
 
         if proc.returncode != 0:
             if proc.returncode < 0:
@@ -246,14 +243,15 @@ def config_file_or_checks(
     return "--config"
 
 
-def merge_replacement_files(tmpdir: str, mergefile: str):
+def merge_replacement_files(tmpdir: Path, mergefile: Path):
     """Merge all replacement files in a directory into a single file"""
     # The fixes suggested by clang-tidy >= 4.0.0 are given under
     # the top level key 'Diagnostics' in the output yaml files
     mergekey = "Diagnostics"
     merged = []
-    for replacefile in glob.iglob(os.path.join(tmpdir, "*.yaml")):
-        content = yaml.safe_load(open(replacefile, "r"))
+    for replacefile in tmpdir.glob("*.yaml"):
+        with replacefile.open() as f:
+            content = yaml.safe_load(f)
         if not content:
             continue  # Skip empty files.
         merged.extend(content.get(mergekey, []))
@@ -264,15 +262,15 @@ def merge_replacement_files(tmpdir: str, mergefile: str):
         # is actually never used inside clang-apply-replacements,
         # so we set it to '' here.
         output = {"MainSourceFile": "", mergekey: merged}
-        with open(mergefile, "w") as out:
+        with mergefile.open("w") as out:
             yaml.safe_dump(output, out)
 
 
 def load_clang_tidy_warnings(fixes_file) -> Dict:
     """Read clang-tidy warnings from fixes_file. Can be produced by build_clang_tidy_warnings"""
     try:
-        with Path(FIXES_FILE).open() as fixes_file:
-            return yaml.safe_load(fixes_file)
+        with fixes_file.open() as f:
+            return yaml.safe_load(f)
     except FileNotFoundError:
         return {}
 
@@ -672,7 +670,7 @@ def fix_absolute_paths(build_compile_commands, base_dir):
     """
 
     basedir = pathlib.Path(base_dir).resolve()
-    newbasedir = pathlib.Path().resolve()
+    newbasedir = Path.cwd()
 
     if basedir == newbasedir:
         return
@@ -992,8 +990,7 @@ def create_review(
     username = pull_request.get_pr_author() or "your name here"
 
     # Run clang-tidy with the configured parameters and produce the CLANG_TIDY_FIXES file
-    return_code = 0
-    export_fixes_dir = tempfile.mkdtemp()
+    export_fixes_dir = Path(tempfile.mkdtemp())
     env = dict(os.environ, USER=username)
     config = config_file_or_checks(clang_tidy_binary, clang_tidy_checks, config_file)
     base_invocation = [
@@ -1038,8 +1035,6 @@ def create_review(
 
         # Wait for all threads to be done.
         task_queue.join()
-        if len(failed_files):
-            return_code = 1
 
     except KeyboardInterrupt:
         # This is a sad hack. Unfortunately subprocess goes
@@ -1050,7 +1045,7 @@ def create_review(
     real_duration = datetime.datetime.now() - start
 
     # Read and parse the CLANG_TIDY_FIXES file
-    print("Writing fixes to " + FIXES_FILE + " ...")
+    print(f"Writing fixes to {FIXES_FILE} ...")
     merge_replacement_files(export_fixes_dir, FIXES_FILE)
     shutil.rmtree(export_fixes_dir)
     clang_tidy_warnings = load_clang_tidy_warnings(FIXES_FILE)
@@ -1115,9 +1110,13 @@ def download_artifacts(pull: PullRequest, workflow_id: int):
     filenames = data.namelist()
 
     metadata = (
-        json.loads(data.read(METADATA_FILE)) if METADATA_FILE in filenames else None
+        json.loads(data.read(str(METADATA_FILE)))
+        if METADATA_FILE in filenames
+        else None
     )
-    review = json.loads(data.read(REVIEW_FILE)) if REVIEW_FILE in filenames else None
+    review = (
+        json.loads(data.read(str(REVIEW_FILE))) if REVIEW_FILE in filenames else None
+    )
     return metadata, review
 
 
