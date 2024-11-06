@@ -8,19 +8,20 @@
 import argparse
 import pathlib
 import pprint
+import sys
 
 from clang_tidy_review import (
-    PullRequest,
-    load_and_merge_reviews,
-    post_review,
-    load_metadata,
-    strip_enclosing_quotes,
-    download_artifacts,
-    post_annotations,
-    bool_argument,
     REVIEW_FILE,
+    PullRequest,
     add_auth_arguments,
+    bool_argument,
+    download_artifacts,
     get_auth_from_arguments,
+    load_and_merge_reviews,
+    load_metadata,
+    post_annotations,
+    post_review,
+    strip_enclosing_quotes,
 )
 
 
@@ -104,11 +105,8 @@ def main() -> int:
             pull_request, review, args.max_comments, lgtm_comment_body, args.dry_run
         )
 
-    if args.num_comments_as_exitcode:
-        return exit_code
-    else:
-        return 0
+    return (exit_code or 0) if args.num_comments_as_exitcode else 0
 
 
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(main())

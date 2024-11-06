@@ -5,44 +5,43 @@
 
 import argparse
 import base64
+import contextlib
+import datetime
 import fnmatch
-import glob
+import io
 import itertools
 import json
 import multiprocessing
 import os
+import pathlib
+import pprint
 import queue
+import re
 import shutil
+import subprocess
 import sys
 import tempfile
-import threading
-import traceback
-from operator import itemgetter
-import pprint
-import pathlib
-import subprocess
 import textwrap
+import threading
+import zipfile
+from operator import itemgetter
+from pathlib import Path
+from typing import Any, Dict, List, Optional, TypedDict
+
 import unidiff
 import urllib3
 import yaml
-import contextlib
-import datetime
-import re
-import io
-import textwrap
-import zipfile
-from github import Github, Auth
-from github.GithubException import GithubException
-from github.Requester import Requester
+from github import Auth, Github
 from github.PaginatedList import PaginatedList
+from github.PullRequest import ReviewComment
+from github.Requester import Requester
 from github.WorkflowRun import WorkflowRun
-from typing import Any, List, Optional, TypedDict, Dict
 
 DIFF_HEADER_LINE_LENGTH = 5
-FIXES_FILE = "clang_tidy_review.yaml"
-METADATA_FILE = "clang-tidy-review-metadata.json"
-REVIEW_FILE = "clang-tidy-review-output.json"
-PROFILE_DIR = "clang-tidy-review-profile"
+FIXES_FILE = Path("clang_tidy_review.yaml")
+METADATA_FILE = Path("clang-tidy-review-metadata.json")
+REVIEW_FILE = Path("clang-tidy-review-output.json")
+PROFILE_DIR = Path("clang-tidy-review-profile")
 MAX_ANNOTATIONS = 10
 
 
@@ -55,20 +54,10 @@ class Metadata(TypedDict):
     pr_number: int
 
 
-class PRReviewComment(TypedDict):
-    path: str
-    position: Optional[int]
-    body: str
-    line: Optional[int]
-    side: Optional[str]
-    start_line: Optional[int]
-    start_side: Optional[str]
-
-
 class PRReview(TypedDict):
     body: str
     event: str
-    comments: List[PRReviewComment]
+    comments: list[ReviewComment]
 
 
 class HashableComment:
@@ -134,7 +123,7 @@ Permissions required: Contents (Read) and Pull requests (Read and Write)"""
     group_app.add_argument("--installation-id", type=int, help="app installation ID")
 
 
-def get_auth_from_arguments(args: argparse.Namespace) -> Auth:
+def get_auth_from_arguments(args: argparse.Namespace) -> Auth.Auth:
     if args.token:
         return Auth.Token(args.token)
 
@@ -148,11 +137,11 @@ def get_auth_from_arguments(args: argparse.Namespace) -> Auth:
         elif args.private_key_base64:
             private_key = base64.b64decode(args.private_key_base64).decode("ascii")
         else:
-            private_key = open(args.private_key_file_path).read()
+            private_key = pathlib.Path(args.private_key_file_path).read_text()
         return Auth.AppAuth(args.app_id, private_key).get_installation_auth(
             args.installation_id
         )
-    elif (
+    if (
         args.app_id
         or args.private_key
         or args.private_key_file_path
@@ -170,7 +159,7 @@ def get_auth_from_arguments(args: argparse.Namespace) -> Auth:
 def build_clang_tidy_warnings(
     base_invocation: List,
     env: dict,
-    tmpdir: str,
+    tmpdir: Path,
     task_queue: queue.Queue,
     lock: threading.Lock,
     failed_files: List,
@@ -193,7 +182,6 @@ def build_clang_tidy_warnings(
             invocation, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env
         )
         output, err = proc.communicate()
-        end = datetime.datetime.now()
 
         if proc.returncode != 0:
             if proc.returncode < 0:
@@ -255,14 +243,15 @@ def config_file_or_checks(
     return "--config"
 
 
-def merge_replacement_files(tmpdir: str, mergefile: str):
+def merge_replacement_files(tmpdir: Path, mergefile: Path):
     """Merge all replacement files in a directory into a single file"""
     # The fixes suggested by clang-tidy >= 4.0.0 are given under
     # the top level key 'Diagnostics' in the output yaml files
     mergekey = "Diagnostics"
     merged = []
-    for replacefile in glob.iglob(os.path.join(tmpdir, "*.yaml")):
-        content = yaml.safe_load(open(replacefile, "r"))
+    for replacefile in tmpdir.glob("*.yaml"):
+        with replacefile.open() as f:
+            content = yaml.safe_load(f)
         if not content:
             continue  # Skip empty files.
         merged.extend(content.get(mergekey, []))
@@ -273,15 +262,15 @@ def merge_replacement_files(tmpdir: str, mergefile: str):
         # is actually never used inside clang-apply-replacements,
         # so we set it to '' here.
         output = {"MainSourceFile": "", mergekey: merged}
-        with open(mergefile, "w") as out:
+        with mergefile.open("w") as out:
             yaml.safe_dump(output, out)
 
 
 def load_clang_tidy_warnings(fixes_file) -> Dict:
     """Read clang-tidy warnings from fixes_file. Can be produced by build_clang_tidy_warnings"""
     try:
-        with open(fixes_file, "r") as file:
-            return yaml.safe_load(file)
+        with fixes_file.open() as f:
+            return yaml.safe_load(f)
     except FileNotFoundError:
         return {}
 
@@ -289,7 +278,7 @@ def load_clang_tidy_warnings(fixes_file) -> Dict:
 class PullRequest:
     """Add some convenience functions not in PyGithub"""
 
-    def __init__(self, repo: str, pr_number: Optional[int], auth: Auth) -> None:
+    def __init__(self, repo: str, pr_number: Optional[int], auth: Auth.Auth) -> None:
         self.repo_name = repo
         self.pr_number = pr_number
         self.auth = auth
@@ -340,8 +329,7 @@ class PullRequest:
         # property to be line count within each file's diff. So we need to
         # do this little bit of faff to get a list of file-diffs with
         # their own diff_line_no range
-        diff = [unidiff.PatchSet(str(file))[0] for file in unidiff.PatchSet(diffs)]
-        return diff
+        return [unidiff.PatchSet(str(file))[0] for file in unidiff.PatchSet(diffs)]
 
     def get_pr_author(self) -> str:
         """Get the username of the PR author. This is used in google-readability-todo"""
@@ -432,14 +420,15 @@ def make_file_offset_lookup(filenames):
     lookup = {}
 
     for filename in filenames:
-        with open(filename, "r") as file:
+        with Path(filename).open() as file:
             lines = file.readlines()
         # Length of each line
         line_lengths = map(len, lines)
         # Cumulative sum of line lengths => offset at end of each line
-        lookup[os.path.abspath(filename)] = [0] + list(
-            itertools.accumulate(line_lengths)
-        )
+        lookup[Path(filename).resolve().as_posix()] = [
+            0,
+            *list(itertools.accumulate(line_lengths)),
+        ]
 
     return lookup
 
@@ -456,29 +445,23 @@ def get_diagnostic_file_path(clang_tidy_diagnostic, build_dir):
         file_path = clang_tidy_diagnostic["DiagnosticMessage"]["FilePath"]
         if file_path == "":
             return ""
-        elif os.path.isabs(file_path):
-            return os.path.normpath(os.path.abspath(file_path))
-        else:
-            # Make the relative path absolute with the build dir
-            if "BuildDirectory" in clang_tidy_diagnostic:
-                return os.path.normpath(
-                    os.path.abspath(
-                        os.path.join(clang_tidy_diagnostic["BuildDirectory"], file_path)
-                    )
-                )
-            else:
-                return os.path.normpath(os.path.abspath(file_path))
+        file_path = Path(file_path)
+        if file_path.is_absolute():
+            return os.path.normpath(file_path.resolve())
+        if "BuildDirectory" in clang_tidy_diagnostic:
+            return os.path.normpath(
+                (Path(clang_tidy_diagnostic["BuildDirectory"]) / file_path).resolve()
+            )
+        return os.path.normpath(file_path.resolve())
 
     # Pre-clang-tidy-9 format
-    elif "FilePath" in clang_tidy_diagnostic:
+    if "FilePath" in clang_tidy_diagnostic:
         file_path = clang_tidy_diagnostic["FilePath"]
         if file_path == "":
             return ""
-        else:
-            return os.path.normpath(os.path.abspath(os.path.join(build_dir, file_path)))
+        return os.path.normpath((Path(build_dir) / file_path).resolve())
 
-    else:
-        return ""
+    return ""
 
 
 def find_line_number_from_offset(offset_lookup, filename, offset):
@@ -503,7 +486,7 @@ def find_line_number_from_offset(offset_lookup, filename, offset):
 def read_one_line(filename, line_offset):
     """Read a single line from a source file"""
     # Could cache the files instead of opening them each time?
-    with open(filename, "r") as file:
+    with Path(filename).open() as file:
         file.seek(line_offset)
         return file.readline().rstrip("\n")
 
@@ -527,7 +510,7 @@ def collate_replacement_sets(diagnostic, offset_lookup):
         # from the FilePath and we'll end up looking for a path that's not in
         # the lookup dict
         # To fix this, we'll convert all the FilePaths to absolute paths
-        replacement["FilePath"] = os.path.abspath(replacement["FilePath"])
+        replacement["FilePath"] = Path(replacement["FilePath"]).resolve().as_posix()
 
         # It's possible the replacement is needed in another file?
         # Not really sure how that could come about, but let's
@@ -574,7 +557,7 @@ def replace_one_line(replacement_set, line_num, offset_lookup):
     line_offset = offset_lookup[filename][line_num]
 
     # List of (start, end) offsets from line_offset
-    insert_offsets = [(0, 0)]
+    insert_offsets: list[tuple[Optional[int], Optional[int]]] = [(0, 0)]
     # Read all the source lines into a dict so we only get one copy of
     # each line, though we might read the same line in multiple times
     source_lines = {}
@@ -687,7 +670,7 @@ def fix_absolute_paths(build_compile_commands, base_dir):
     """
 
     basedir = pathlib.Path(base_dir).resolve()
-    newbasedir = pathlib.Path(".").resolve()
+    newbasedir = Path.cwd()
 
     if basedir == newbasedir:
         return
@@ -695,7 +678,7 @@ def fix_absolute_paths(build_compile_commands, base_dir):
     print(f"Found '{build_compile_commands}', updating absolute paths")
     # We might need to change some absolute paths if we're inside
     # a docker container
-    with open(build_compile_commands, "r") as f:
+    with Path(build_compile_commands).open() as f:
         compile_commands = json.load(f)
 
     print(f"Replacing '{basedir}' with '{newbasedir}'", flush=True)
@@ -704,7 +687,7 @@ def fix_absolute_paths(build_compile_commands, base_dir):
         str(basedir), str(newbasedir)
     )
 
-    with open(build_compile_commands, "w") as f:
+    with Path(build_compile_commands).open("w") as f:
         f.write(modified_compile_commands)
 
 
@@ -790,7 +773,7 @@ def create_review_file(
     if "Diagnostics" not in clang_tidy_warnings:
         return None
 
-    comments: List[PRReviewComment] = []
+    comments: List[ReviewComment] = []
 
     for diagnostic in clang_tidy_warnings["Diagnostics"]:
         try:
@@ -972,32 +955,34 @@ def create_review(
     files = filter_files(diff, include, exclude)
 
     if files == []:
-        with message_group("No files to check!"):
-            with open(REVIEW_FILE, "w") as review_file:
-                json.dump(
-                    {
-                        "body": "clang-tidy found no files to check",
-                        "event": "COMMENT",
-                        "comments": [],
-                    },
-                    review_file,
-                )
+        with message_group("No files to check!"), Path(REVIEW_FILE).open(
+            "w"
+        ) as review_file:
+            json.dump(
+                {
+                    "body": "clang-tidy found no files to check",
+                    "event": "COMMENT",
+                    "comments": [],
+                },
+                review_file,
+            )
         return None
 
     print(f"Checking these files: {files}", flush=True)
 
     line_ranges = get_line_ranges(diff, files)
     if line_ranges == "[]":
-        with message_group("No lines added in this PR!"):
-            with open(REVIEW_FILE, "w") as review_file:
-                json.dump(
-                    {
-                        "body": "clang-tidy found no lines added",
-                        "event": "COMMENT",
-                        "comments": [],
-                    },
-                    review_file,
-                )
+        with message_group("No lines added in this PR!"), Path(REVIEW_FILE).open(
+            "w"
+        ) as review_file:
+            json.dump(
+                {
+                    "body": "clang-tidy found no lines added",
+                    "event": "COMMENT",
+                    "comments": [],
+                },
+                review_file,
+            )
         return None
 
     print(f"Line filter for clang-tidy:\n{line_ranges}\n")
@@ -1005,8 +990,7 @@ def create_review(
     username = pull_request.get_pr_author() or "your name here"
 
     # Run clang-tidy with the configured parameters and produce the CLANG_TIDY_FIXES file
-    return_code = 0
-    export_fixes_dir = tempfile.mkdtemp()
+    export_fixes_dir = Path(tempfile.mkdtemp())
     env = dict(os.environ, USER=username)
     config = config_file_or_checks(clang_tidy_binary, clang_tidy_checks, config_file)
     base_invocation = [
@@ -1051,8 +1035,6 @@ def create_review(
 
         # Wait for all threads to be done.
         task_queue.join()
-        if len(failed_files):
-            return_code = 1
 
     except KeyboardInterrupt:
         # This is a sad hack. Unfortunately subprocess goes
@@ -1063,7 +1045,7 @@ def create_review(
     real_duration = datetime.datetime.now() - start
 
     # Read and parse the CLANG_TIDY_FIXES file
-    print("Writing fixes to " + FIXES_FILE + " ...")
+    print(f"Writing fixes to {FIXES_FILE} ...")
     merge_replacement_files(export_fixes_dir, FIXES_FILE)
     shutil.rmtree(export_fixes_dir)
     clang_tidy_warnings = load_clang_tidy_warnings(FIXES_FILE)
@@ -1089,7 +1071,7 @@ def create_review(
         review = create_review_file(
             clang_tidy_warnings, diff_lookup, offset_lookup, build_dir
         )
-        with open(REVIEW_FILE, "w") as review_file:
+        with Path(REVIEW_FILE).open("w") as review_file:
             json.dump(review, review_file)
 
         return review
@@ -1118,7 +1100,7 @@ def download_artifacts(pull: PullRequest, workflow_id: int):
         "Authorization": f"Bearer {pull.token}",
     }
     r = urllib3.request("GET", artifact.archive_download_url, headers=headers)
-    if r.status is not 200:
+    if r.status != 200:
         print(
             f"WARNING: Couldn't automatically download artifacts for workflow '{workflow_id}', response was: {r}: {r.reason}"
         )
@@ -1128,9 +1110,13 @@ def download_artifacts(pull: PullRequest, workflow_id: int):
     filenames = data.namelist()
 
     metadata = (
-        json.loads(data.read(METADATA_FILE)) if METADATA_FILE in filenames else None
+        json.loads(data.read(str(METADATA_FILE)))
+        if METADATA_FILE in filenames
+        else None
     )
-    review = json.loads(data.read(REVIEW_FILE)) if REVIEW_FILE in filenames else None
+    review = (
+        json.loads(data.read(str(REVIEW_FILE))) if REVIEW_FILE in filenames else None
+    )
     return metadata, review
 
 
@@ -1141,7 +1127,7 @@ def load_metadata() -> Optional[Metadata]:
         print(f"WARNING: Could not find metadata file ('{METADATA_FILE}')", flush=True)
         return None
 
-    with open(METADATA_FILE, "r") as metadata_file:
+    with Path(METADATA_FILE).open() as metadata_file:
         return json.load(metadata_file)
 
 
@@ -1150,7 +1136,7 @@ def save_metadata(pr_number: int) -> None:
 
     metadata: Metadata = {"pr_number": pr_number}
 
-    with open(METADATA_FILE, "w") as metadata_file:
+    with Path(METADATA_FILE).open("w") as metadata_file:
         json.dump(metadata, metadata_file)
 
 
@@ -1161,17 +1147,17 @@ def load_review(review_file: pathlib.Path) -> Optional[PRReview]:
         print(f"WARNING: Could not find review file ('{review_file}')", flush=True)
         return None
 
-    with open(review_file, "r") as review_file_handle:
+    with review_file.open() as review_file_handle:
         payload = json.load(review_file_handle)
         return payload or None
 
 
 def load_and_merge_profiling() -> Dict:
-    result = dict()
-    for profile_file in glob.iglob(os.path.join(PROFILE_DIR, "*.json")):
-        profile_dict = json.load(open(profile_file))
+    result = {}
+    for profile_file in Path(PROFILE_DIR).glob("*.json"):
+        profile_dict = json.load(profile_file.open())
         filename = profile_dict["file"]
-        current_profile = result.get(filename, dict())
+        current_profile = result.get(filename, {})
         for check, timing in profile_dict["profile"].items():
             current_profile[check] = current_profile.get(check, 0.0) + timing
         result[filename] = current_profile
@@ -1203,7 +1189,7 @@ def load_and_merge_reviews(review_files: List[pathlib.Path]) -> Optional[PRRevie
 
     comments = set()
     for review in reviews:
-        comments.update(map(lambda c: HashableComment(**c), review["comments"]))
+        comments.update(HashableComment(**c) for c in review["comments"])
 
     result["comments"] = [c.__dict__ for c in sorted(comments)]
 
@@ -1242,7 +1228,7 @@ def get_line_ranges(diff, files):
         # Adding a copy of the line filters with backslashes allows for both cl.exe and clang.exe to work.
         if os.path.sep == "\\":
             # Converts name to backslashes for the cl.exe line filter.
-            name = os.path.join(*name.split("/"))
+            name = Path.joinpath(*name.split("/"))
             line_filter_json.append({"name": name, "lines": lines})
     return json.dumps(line_filter_json, separators=(",", ":"))
 
@@ -1253,10 +1239,8 @@ def cull_comments(pull_request: PullRequest, review, max_comments):
 
     """
 
-    unposted_comments = set(map(lambda c: HashableComment(**c), review["comments"]))
-    posted_comments = set(
-        map(lambda c: HashableComment(**c), pull_request.get_pr_comments())
-    )
+    unposted_comments = {HashableComment(**c) for c in review["comments"]}
+    posted_comments = {HashableComment(**c) for c in pull_request.get_pr_comments()}
 
     review["comments"] = [
         c.__dict__ for c in sorted(unposted_comments - posted_comments)
@@ -1290,7 +1274,7 @@ def set_output(key: str, val: str) -> bool:
         return False
 
     # append key-val pair to file
-    with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+    with Path(os.environ["GITHUB_OUTPUT"]).open("a") as f:
         f.write(f"{key}={val}\n")
 
     return True
@@ -1301,7 +1285,7 @@ def set_summary(val: str) -> bool:
         return False
 
     # append key-val pair to file
-    with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+    with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as f:
         f.write(val)
 
     return True
@@ -1317,10 +1301,10 @@ def decorate_check_names(comment: str) -> str:
     url = f"https://clang.llvm.org/{version}/clang-tidy/checks"
     regex = r"(\[((?:clang-analyzer)|(?:(?!clang)[\w]+))-([\.\w-]+)\]$)"
     subst = f"[\\g<1>({url}/\\g<2>/\\g<3>.html)]"
-    return re.sub(regex, subst, comment, 1, re.MULTILINE)
+    return re.sub(regex, subst, comment, count=1, flags=re.MULTILINE)
 
 
-def decorate_comment(comment: PRReviewComment) -> PRReviewComment:
+def decorate_comment(comment: ReviewComment) -> ReviewComment:
     comment["body"] = decorate_check_names(comment["body"])
     return comment
 
@@ -1381,10 +1365,12 @@ def convert_comment_to_annotations(comment):
     }
 
 
-def post_annotations(pull_request: PullRequest, review: Optional[PRReview]) -> int:
+def post_annotations(
+    pull_request: PullRequest, review: Optional[PRReview]
+) -> Optional[int]:
     """Post the first 10 comments in the review as annotations"""
 
-    body = {
+    body: dict[str, Any] = {
         "name": "clang-tidy-review",
         "head_sha": pull_request.pull_request.head.sha,
         "status": "completed",
@@ -1392,7 +1378,7 @@ def post_annotations(pull_request: PullRequest, review: Optional[PRReview]) -> i
     }
 
     if review is None:
-        return
+        return None
 
     if review["comments"] == []:
         print("No warnings to report, LGTM!")
@@ -1402,7 +1388,7 @@ def post_annotations(pull_request: PullRequest, review: Optional[PRReview]) -> i
     for comment in review["comments"]:
         first_line = comment["body"].splitlines()[0]
         comments.append(
-            f"{comment['path']}:{comment.get('start_line', comment['line'])}: {first_line}"
+            f"{comment['path']}:{comment.get('start_line', comment.get('line', 0))}: {first_line}"
         )
 
     total_comments = len(review["comments"])

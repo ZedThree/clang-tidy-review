@@ -6,26 +6,24 @@
 # See LICENSE for more information
 
 import argparse
-import os
-import pathlib
 import re
 import subprocess
+from pathlib import Path
 
 from clang_tidy_review import (
     PullRequest,
+    add_auth_arguments,
+    bool_argument,
     create_review,
     fix_absolute_paths,
+    get_auth_from_arguments,
     message_group,
+    post_annotations,
     post_review,
     save_metadata,
-    strip_enclosing_quotes,
-    post_annotations,
-    bool_argument,
     set_output,
-    add_auth_arguments,
-    get_auth_from_arguments,
+    strip_enclosing_quotes,
 )
-
 
 BAD_CHARS_APT_PACKAGES_PATTERN = "[;&|($]"
 
@@ -40,7 +38,7 @@ def main():
         "--clang_tidy_binary",
         help="clang-tidy binary",
         default="clang-tidy-14",
-        type=pathlib.Path,
+        type=Path,
     )
     parser.add_argument(
         "--build_dir", help="Directory with compile_commands.json", default="."
@@ -139,7 +137,7 @@ def main():
         with message_group(f"Installing additional packages: {apt_packages}"):
             subprocess.run(["apt-get", "update"], check=True)
             subprocess.run(
-                ["apt-get", "install", "-y", "--no-install-recommends"] + apt_packages,
+                ["apt-get", "install", "-y", "--no-install-recommends", *apt_packages],
                 check=True,
             )
 
@@ -153,7 +151,7 @@ def main():
         with message_group(f"Running cmake: {cmake_command}"):
             subprocess.run(cmake_command, shell=True, check=True)
 
-    elif os.path.exists(build_compile_commands):
+    elif Path(build_compile_commands).exists():
         fix_absolute_paths(build_compile_commands, args.base_dir)
 
     pull_request = PullRequest(args.repo, args.pr, get_auth_from_arguments(args))
@@ -174,7 +172,7 @@ def main():
 
     if args.split_workflow:
         total_comments = 0 if review is None else len(review["comments"])
-        set_output("total_comments", total_comments)
+        set_output("total_comments", str(total_comments))
         print("split_workflow is enabled, not posting review")
         return
 
