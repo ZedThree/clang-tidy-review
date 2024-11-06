@@ -105,7 +105,7 @@ def main() -> int:
             pull_request, review, args.max_comments, lgtm_comment_body, args.dry_run
         )
 
-    return exit_code if args.num_comments_as_exitcode else 0
+    return (exit_code or 0) if args.num_comments_as_exitcode else 0
 
 
 if __name__ == "__main__":
