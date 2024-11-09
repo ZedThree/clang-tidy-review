@@ -1111,11 +1111,13 @@ def download_artifacts(pull: PullRequest, workflow_id: int):
 
     metadata = (
         json.loads(data.read(str(METADATA_FILE)))
-        if METADATA_FILE in filenames
+        if str(METADATA_FILE) in filenames
         else None
     )
     review = (
-        json.loads(data.read(str(REVIEW_FILE))) if REVIEW_FILE in filenames else None
+        json.loads(data.read(str(REVIEW_FILE)))
+        if str(REVIEW_FILE) in filenames
+        else None
     )
     return metadata, review
 
