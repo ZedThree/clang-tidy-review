@@ -11,6 +11,8 @@ import unidiff
 
 import pytest
 
+from pathlib import Path
+
 TEST_DIR = pathlib.Path(__file__).parent
 TEST_FILE = TEST_DIR / "src/hello.cxx"
 TEST_DIFF = [
@@ -191,7 +193,7 @@ def test_fix_absolute_paths(tmp_path):
 
 
 def test_save_load_metadata(tmp_path, monkeypatch):
-    monkeypatch.setattr(ctr, "METADATA_FILE", str(tmp_path / ctr.METADATA_FILE))
+    monkeypatch.setattr(ctr, "METADATA_FILE", tmp_path / ctr.METADATA_FILE)
 
     ctr.save_metadata(42)
     meta = ctr.load_metadata()
@@ -391,7 +393,7 @@ def test_version(monkeypatch):
         lambda *args, **kwargs: MockClangTidyVersionProcess(expected_version),
     )
 
-    version = ctr.clang_tidy_version("not-clang-tidy")
+    version = ctr.clang_tidy_version(Path("not-clang-tidy"))
     assert version == expected_version
 
 
@@ -406,25 +408,27 @@ def test_config_file(monkeypatch, tmp_path):
 
     # If you set clang_tidy_checks to something and config_file to something, config_file is sent to clang-tidy.
     flag = ctr.config_file_or_checks(
-        "not-clang-tidy", clang_tidy_checks="readability", config_file=str(config_file)
+        Path("not-clang-tidy"),
+        clang_tidy_checks="readability",
+        config_file=str(config_file),
     )
     assert flag == f"--config-file={config_file}"
 
     # If you set clang_tidy_checks and config_file to an empty string, neither are sent to the clang-tidy.
     flag = ctr.config_file_or_checks(
-        "not-clang-tidy", clang_tidy_checks="", config_file=""
+        Path("not-clang-tidy"), clang_tidy_checks="", config_file=""
     )
     assert flag is None
 
     # If you get config_file to something, config_file is sent to clang-tidy.
     flag = ctr.config_file_or_checks(
-        "not-clang-tidy", clang_tidy_checks="", config_file=str(config_file)
+        Path("not-clang-tidy"), clang_tidy_checks="", config_file=str(config_file)
     )
     assert flag == f"--config-file={config_file}"
 
     # If you get clang_tidy_checks to something and config_file to nothing, clang_tidy_checks is sent to clang-tidy.
     flag = ctr.config_file_or_checks(
-        "not-clang-tidy", clang_tidy_checks="readability", config_file=""
+        Path("not-clang-tidy"), clang_tidy_checks="readability", config_file=""
     )
     assert flag == "--checks=readability"
 
@@ -465,7 +469,7 @@ def test_decorate_comment_body():
 
 
 def test_timing_summary(monkeypatch):
-    monkeypatch.setattr(ctr, "PROFILE_DIR", str(TEST_DIR / "src/clang-tidy-profile"))
+    monkeypatch.setattr(ctr, "PROFILE_DIR", TEST_DIR / "src/clang-tidy-profile")
     profiling = ctr.load_and_merge_profiling()
     assert "time.clang-tidy.total.wall" in profiling["hello.cxx"].keys()
     assert "time.clang-tidy.total.user" in profiling["hello.cxx"].keys()

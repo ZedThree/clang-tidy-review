@@ -266,7 +266,7 @@ def merge_replacement_files(tmpdir: Path, mergefile: Path):
             yaml.safe_dump(output, out)
 
 
-def load_clang_tidy_warnings(fixes_file) -> Dict:
+def load_clang_tidy_warnings(fixes_file: Path) -> Dict:
     """Read clang-tidy warnings from fixes_file. Can be produced by build_clang_tidy_warnings"""
     try:
         with fixes_file.open() as f:
@@ -955,9 +955,7 @@ def create_review(
     files = filter_files(diff, include, exclude)
 
     if files == []:
-        with message_group("No files to check!"), Path(REVIEW_FILE).open(
-            "w"
-        ) as review_file:
+        with message_group("No files to check!"), REVIEW_FILE.open("w") as review_file:
             json.dump(
                 {
                     "body": "clang-tidy found no files to check",
@@ -972,7 +970,7 @@ def create_review(
 
     line_ranges = get_line_ranges(diff, files)
     if line_ranges == "[]":
-        with message_group("No lines added in this PR!"), Path(REVIEW_FILE).open(
+        with message_group("No lines added in this PR!"), REVIEW_FILE.open(
             "w"
         ) as review_file:
             json.dump(
@@ -1071,7 +1069,7 @@ def create_review(
         review = create_review_file(
             clang_tidy_warnings, diff_lookup, offset_lookup, build_dir
         )
-        with Path(REVIEW_FILE).open("w") as review_file:
+        with REVIEW_FILE.open("w") as review_file:
             json.dump(review, review_file)
 
         return review
@@ -1111,11 +1109,13 @@ def download_artifacts(pull: PullRequest, workflow_id: int):
 
     metadata = (
         json.loads(data.read(str(METADATA_FILE)))
-        if METADATA_FILE in filenames
+        if str(METADATA_FILE) in filenames
         else None
     )
     review = (
-        json.loads(data.read(str(REVIEW_FILE))) if REVIEW_FILE in filenames else None
+        json.loads(data.read(str(REVIEW_FILE)))
+        if str(REVIEW_FILE) in filenames
+        else None
     )
     return metadata, review
 
@@ -1123,11 +1123,11 @@ def download_artifacts(pull: PullRequest, workflow_id: int):
 def load_metadata() -> Optional[Metadata]:
     """Load metadata from the METADATA_FILE path"""
 
-    if not pathlib.Path(METADATA_FILE).exists():
+    if not METADATA_FILE.exists():
         print(f"WARNING: Could not find metadata file ('{METADATA_FILE}')", flush=True)
         return None
 
-    with Path(METADATA_FILE).open() as metadata_file:
+    with METADATA_FILE.open() as metadata_file:
         return json.load(metadata_file)
 
 
@@ -1136,7 +1136,7 @@ def save_metadata(pr_number: int) -> None:
 
     metadata: Metadata = {"pr_number": pr_number}
 
-    with Path(METADATA_FILE).open("w") as metadata_file:
+    with METADATA_FILE.open("w") as metadata_file:
         json.dump(metadata, metadata_file)
 
 
@@ -1154,7 +1154,7 @@ def load_review(review_file: pathlib.Path) -> Optional[PRReview]:
 
 def load_and_merge_profiling() -> Dict:
     result = {}
-    for profile_file in Path(PROFILE_DIR).glob("*.json"):
+    for profile_file in PROFILE_DIR.glob("*.json"):
         profile_dict = json.load(profile_file.open())
         filename = profile_dict["file"]
         current_profile = result.get(filename, {})
