@@ -337,18 +337,7 @@ class PullRequest:
 
     def get_pr_comments(self):
         """Download the PR review comments using the comfort-fade preview headers"""
-
-        def get_element(
-            requester: Requester, headers: dict, element: dict, completed: bool
-        ):
-            return element
-
-        return PaginatedList(
-            get_element,
-            self.pull_request._requester,
-            self.pull_request.review_comments_url,
-            None,
-        )
+        return self.pull_request.get_review_comments()
 
     def post_lgtm_comment(self, body: str):
         """Post a "LGTM" comment if everything's clean, making sure not to spam"""
@@ -359,7 +348,7 @@ class PullRequest:
         comments = self.get_pr_comments()
 
         for comment in comments:
-            if comment["body"] == body:
+            if comment.body == body:
                 print("Already posted, no need to update")
                 return
 
@@ -1240,7 +1229,10 @@ def cull_comments(pull_request: PullRequest, review, max_comments):
     """
 
     unposted_comments = {HashableComment(**c) for c in review["comments"]}
-    posted_comments = {HashableComment(**c) for c in pull_request.get_pr_comments()}
+    posted_comments = {
+        HashableComment(c.body, c.line or c.original_line, c.path, c.side)
+        for c in pull_request.get_pr_comments()
+    }
 
     review["comments"] = [
         c.__dict__ for c in sorted(unposted_comments - posted_comments)
