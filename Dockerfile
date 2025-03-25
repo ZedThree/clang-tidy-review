@@ -10,6 +10,7 @@ RUN apt update && \
     clang-tidy-16 \
     clang-tidy-17 \
     clang-tidy-18 \
+    clang-tidy-19 \
     python3 \
     python3-pip \
     && rm -rf /var/lib/apt/lists/
