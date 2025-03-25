@@ -147,8 +147,9 @@ def main():
                 check=True,
             )
 
-    if args.install_commands:
-        install_commands = args.install_commands
+    install_commands = strip_enclosing_quotes(args.install_commands)
+    
+    if install_commands:
         with message_group(f"Running additional install commands: {install_commands}"):
             subprocess.run(install_commands, shell=True, check=True)
 
