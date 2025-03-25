@@ -78,6 +78,12 @@ def main():
         default="",
     )
     parser.add_argument(
+        "--install-commands",
+        help="Comma-separated list of shell commands to execute",
+        type=str,
+        default="",
+    )
+    parser.add_argument(
         "--cmake-command",
         help="If set, run CMake as part of the action with this command",
         type=str,
@@ -140,6 +146,12 @@ def main():
                 ["apt-get", "install", "-y", "--no-install-recommends", *apt_packages],
                 check=True,
             )
+
+    install_commands = strip_enclosing_quotes(args.install_commands)
+    
+    if install_commands:
+        with message_group(f"Running additional install commands: {install_commands}"):
+            subprocess.run(install_commands, shell=True, check=True)
 
     build_compile_commands = f"{args.build_dir}/compile_commands.json"
 

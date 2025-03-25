@@ -41,6 +41,10 @@ inputs:
     description: 'Comma-separated list of apt packages to install'
     required: false
     default: ''
+  install_commands:
+    description: 'Commands to execute after `apt_packages` and before `cmake_command`'
+    required: false
+    default: ''
   cmake_command:
     description: 'If set, run CMake as part of the action using this command'
     required: false
@@ -87,6 +91,7 @@ runs:
     - --include='${{ inputs.include }}'
     - --exclude='${{ inputs.exclude }}'
     - --apt-packages=${{ inputs.apt_packages }}
+    - --install-commands='${{ inputs.install_commands }}'
     - --cmake-command='${{ inputs.cmake_command }}'
     - --max-comments=${{ inputs.max_comments }}
     - --lgtm-comment-body='${{ inputs.lgtm_comment_body }}'

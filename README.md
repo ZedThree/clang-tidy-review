@@ -60,7 +60,7 @@ some system packages (the different `clang-tidy` versions) as well as
 some Python packages. This that means that there's a two-three minutes
 start-up in order to build the Docker container. If you need to
 install some additional packages you can pass them via the
-`apt_packages` argument.
+`apt_packages` argument or run some install commands with `install_commands`.
 
 Except for very simple projects, a `compile_commands.json` file is necessary for
 clang-tidy to find headers, set preprocessor macros, and so on. You can generate
@@ -99,6 +99,8 @@ at once, so `clang-tidy-review` will only attempt to post the first
 - `exclude`: Comma-separated list of files or patterns to exclude
   - default: ''
 - `apt_packages`: Comma-separated list of apt packages to install
+  - default: ''
+- `install_commands`: Commands to execute after `apt_packages` before `cmake_command`
   - default: ''
 - `cmake_command`: A CMake command to configure your project and generate
   `compile_commands.json` in `build_dir`. You _almost certainly_ want
@@ -149,7 +151,8 @@ jobs:
       id: review
       with:
         # List of packages to install
-        apt_packages: liblapack-dev
+        apt_packages: liblapack-dev,devscripts,equivs
+        install_commands: 'ln -s foo bar; mk-build-deps -i'
         # CMake command to run in order to generate compile_commands.json
         cmake_command: cmake . -DCMAKE_EXPORT_COMPILE_COMMANDS=on
 ```
