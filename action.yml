@@ -91,7 +91,7 @@ runs:
     - --include='${{ inputs.include }}'
     - --exclude='${{ inputs.exclude }}'
     - --apt-packages=${{ inputs.apt_packages }}
-    - --install-commands=${{ inputs.install_commands }}
+    - --install-commands='${{ inputs.install_commands }}'
     - --cmake-command='${{ inputs.cmake_command }}'
     - --max-comments=${{ inputs.max_comments }}
     - --lgtm-comment-body='${{ inputs.lgtm_comment_body }}'
