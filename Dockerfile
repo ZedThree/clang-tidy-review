@@ -1,4 +1,4 @@
-FROM ubuntu:24.04
+FROM ubuntu:25.10
 
 RUN apt update && \
     DEBIAN_FRONTEND=noninteractive \
@@ -11,6 +11,8 @@ RUN apt update && \
     clang-tidy-17 \
     clang-tidy-18 \
     clang-tidy-19 \
+    clang-tidy-20 \
+    clang-tidy-21 \
     python3 \
     python3-pip \
     && rm -rf /var/lib/apt/lists/
