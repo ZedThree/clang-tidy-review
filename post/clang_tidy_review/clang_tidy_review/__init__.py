@@ -1216,8 +1216,8 @@ def get_line_ranges(diff, files):
         # However, clang.exe on windows expects forward slashes.
         # Adding a copy of the line filters with backslashes allows for both cl.exe and clang.exe to work.
         if os.path.sep == "\\":
-            # Converts name to backslashes for the cl.exe line filter.
-            name = Path.joinpath(*name.split("/"))
+            # Converts name to backslashes for the cl.exe line filter using `WindowsPath.__str__`
+            name = str(Path(name))
             line_filter_json.append({"name": name, "lines": lines})
     return json.dumps(line_filter_json, separators=(",", ":"))
 
