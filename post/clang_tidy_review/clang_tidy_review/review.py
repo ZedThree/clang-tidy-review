@@ -130,6 +130,12 @@ def main():
         default=0,
     )
     parser.add_argument(
+        "--include-context-lines",
+        help="Include the 3 context lines above and below changes. These can still be commented on in Github Reviews.",
+        type=bool_argument,
+        default=False,
+    )
+    parser.add_argument(
         "--dry-run", help="Run and generate review, but don't post", action="store_true"
     )
     add_auth_arguments(parser)
@@ -181,9 +187,10 @@ def main():
         args.clang_tidy_binary,
         args.config_file,
         args.parallel,
+        args.include_context_lines,
+        shlex.split(args.extra_arguments),
         include,
         exclude,
-        shlex.split(args.extra_arguments),
     )
 
     with message_group("Saving metadata"):

@@ -927,9 +927,10 @@ def create_review(
     clang_tidy_binary: pathlib.Path,
     config_file: str,
     max_task: int,
+    include_context_lines: bool,
+    extra_arguments: list[str],
     include: List[str],
     exclude: List[str],
-    extra_arguments: list[str],
 ) -> Optional[PRReview]:
     """Given the parameters, runs clang-tidy and creates a review.
     If no files were changed, or no warnings could be found, None will be returned.
@@ -958,7 +959,7 @@ def create_review(
 
     print(f"Checking these files: {files}", flush=True)
 
-    line_ranges = get_line_ranges(diff, files)
+    line_ranges = get_line_ranges(diff, files, include_context_lines)
     if line_ranges == "[]":
         with (
             message_group("No lines added in this PR!"),
@@ -1188,24 +1189,27 @@ def load_and_merge_reviews(review_files: List[pathlib.Path]) -> Optional[PRRevie
     return result
 
 
-def get_line_ranges(diff, files):
+def get_line_ranges(diff, files, include_context_lines: bool):
     """Return the line ranges of added lines in diff, suitable for the
-    line-filter argument of clang-tidy
+    line-filter argument of clang-tidy.
 
+    Optionally also include context lines (3 above and 3 below) added and
+    removed lines which are commentable on Github.
     """
 
     lines_by_file = {}
     for filename in diff:
         if filename.target_file[2:] not in files:
             continue
-        added_lines = []
+        commentable_line_numbers = []
+
         for hunk in filename:
             for line in hunk:
-                if line.is_added:
-                    added_lines.append(line.target_line_no)
+                if line.is_added or (line.is_context and include_context_lines):
+                    commentable_line_numbers.append(line.target_line_no)
 
         for _, group in itertools.groupby(
-            enumerate(added_lines), lambda ix: ix[0] - ix[1]
+            enumerate(commentable_line_numbers), lambda ix: ix[0] - ix[1]
         ):
             groups = list(map(itemgetter(1), group))
             lines_by_file.setdefault(filename.target_file[2:], []).append(

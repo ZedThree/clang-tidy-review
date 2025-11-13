@@ -73,6 +73,10 @@ inputs:
     description: "Number of tidy instances to be run in parallel. Zero will automatically determine the right number."
     required: false
     default: "0"
+  include_context_lines:
+    description: "Include the 3 context lines above and below changes. These can still be commented on in Github Reviews."
+    required: false
+    default: false
   pr:
     default: ${{ github.event.pull_request.number }}
   repo:
@@ -103,3 +107,4 @@ runs:
     - --split_workflow=${{ inputs.split_workflow }}
     - --annotations=${{ inputs.annotations }}
     - --parallel=${{ inputs.parallel }}
+    - --include-context-lines=${{ inputs.include_context_lines }}
