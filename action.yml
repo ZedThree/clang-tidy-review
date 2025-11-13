@@ -25,6 +25,10 @@ inputs:
     description: 'List of checks'
     default: '-*,performance-*,readability-*,bugprone-*,clang-analyzer-*,cppcoreguidelines-*,mpi-*,misc-*'
     required: false
+  extra_arguments:
+    description: 'Extra arguments to pass to the clang-tidy invocation'
+    default: ''
+    required: false
   config_file:
     description: 'Location of .clang-tidy config file. If specified, takes preference over `clang_tidy_checks`'
     default: ''
@@ -87,6 +91,7 @@ runs:
     - --build_dir=${{ inputs.build_dir }}
     - --base_dir=${{ inputs.base_dir }}
     - --clang_tidy_checks=${{ inputs.clang_tidy_checks }}
+    - --extra-arguments='${{ inputs.extra_arguments }}'
     - --config_file=${{ inputs.config_file }}
     - --include='${{ inputs.include }}'
     - --exclude='${{ inputs.exclude }}'

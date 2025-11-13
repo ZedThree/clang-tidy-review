@@ -7,6 +7,7 @@
 
 import argparse
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -52,6 +53,11 @@ def main():
         "--clang_tidy_checks",
         help="checks argument",
         default="'-*,performance-*,readability-*,bugprone-*,clang-analyzer-*,cppcoreguidelines-*,mpi-*,misc-*'",
+    )
+    parser.add_argument(
+        "--extra-arguments",
+        help="Extra arguments to pass to the clang-tidy invocation",
+        default="",
     )
     parser.add_argument(
         "--config_file",
@@ -177,6 +183,7 @@ def main():
         args.parallel,
         include,
         exclude,
+        shlex.split(args.extra_arguments),
     )
 
     with message_group("Saving metadata"):

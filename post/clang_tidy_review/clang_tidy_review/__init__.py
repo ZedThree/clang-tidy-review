@@ -929,6 +929,7 @@ def create_review(
     max_task: int,
     include: List[str],
     exclude: List[str],
+    extra_arguments: list[str],
 ) -> Optional[PRReview]:
     """Given the parameters, runs clang-tidy and creates a review.
     If no files were changed, or no warnings could be found, None will be returned.
@@ -987,6 +988,7 @@ def create_review(
         "--enable-check-profile",
         f"-store-check-profile={PROFILE_DIR}",
     ]
+    base_invocation += extra_arguments
     if config:
         print(f"Using config: {config}")
         base_invocation.append(config)
