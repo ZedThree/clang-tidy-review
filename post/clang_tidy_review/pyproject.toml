@@ -20,6 +20,7 @@ dependencies = [
 ]
 keywords = ["C++", "static-analysis"]
 dynamic = ["version"]
+requires-python = ">= 3.10"
 
 [project.urls]
 source = "https://github.com/ZedThree/clang-tidy-review"
