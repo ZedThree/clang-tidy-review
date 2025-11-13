@@ -960,9 +960,10 @@ def create_review(
 
     line_ranges = get_line_ranges(diff, files)
     if line_ranges == "[]":
-        with message_group("No lines added in this PR!"), REVIEW_FILE.open(
-            "w"
-        ) as review_file:
+        with (
+            message_group("No lines added in this PR!"),
+            REVIEW_FILE.open("w") as review_file,
+        ):
             json.dump(
                 {
                     "body": "clang-tidy found no lines added",
@@ -1291,11 +1292,17 @@ def decorate_check_names(comment: str) -> str:
     exception: if the first group starts with 'clang' such as 'clang-diagnostic-error'
     exception to the exception: if the string starts with 'clang-analyzer', in which case, make it the first group
     """
-    version = "extra"
-    url = f"https://clang.llvm.org/{version}/clang-tidy/checks"
-    regex = r"(\[((?:clang-analyzer)|(?:(?!clang)[\w]+))-([\.\w-]+)\]$)"
-    subst = f"[\\g<1>({url}/\\g<2>/\\g<3>.html)]"
-    return re.sub(regex, subst, comment, count=1, flags=re.MULTILINE)
+    regex = r"\[(((?:clang-analyzer)|(?:(?!clang)[\w]+))-([\.\w-]+))\]$"
+
+    def repl(m: re.Match[str]) -> str:
+        match m.group(2):
+            case "clazy":
+                url = f"https://invent.kde.org/sdk/clazy/-/blob/master/docs/checks/README-{m.group(3)}.md"
+            case other:
+                url = f"https://clang.llvm.org/extra/clang-tidy/checks/{other}/{m.group(3)}.html"
+        return f"[[{m.group(1)}]({url})]"
+
+    return re.sub(regex, repl, comment, count=1, flags=re.MULTILINE)
 
 
 def decorate_comment(comment: ReviewComment) -> ReviewComment:

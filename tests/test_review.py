@@ -455,6 +455,10 @@ def test_decorate_comment_body():
         == clang_analyzer_message_decorated
     )
 
+    clazy_message = "warning: The QColor ctor taking RGB int value is cheaper than one taking string literals [clazy-qcolor-from-literal]"
+    clazy_message_decorated = "warning: The QColor ctor taking RGB int value is cheaper than one taking string literals [[clazy-qcolor-from-literal](https://invent.kde.org/sdk/clazy/-/blob/master/docs/checks/README-qcolor-from-literal.md)]"
+    assert ctr.decorate_check_names(clazy_message) == clazy_message_decorated
+
     # Not sure it's necessary to link to prior version documentation especially since we have to map versions such as
     # "17" to "17.0.1" and "18" to "18.1.0" because no other urls exist
     # version_message_pre_15_version = "14.0.0"
