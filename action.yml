@@ -74,7 +74,7 @@ inputs:
     required: false
     default: "0"
   include_context_lines:
-    description: "Include the 3 context lines above and below changes. These can still be commented on in Github Reviews."
+    description: "Include the 3 context lines above and below changes (default: false). This is useful when removing lines, as it allows `clang-tidy` to raise warnings on the context  around deleted lines. Include the 3 context lines above and below changes. These can still be commented on in Github Reviews."
     required: false
     default: false
   pr:

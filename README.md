@@ -120,7 +120,9 @@ at once, so `clang-tidy-review` will only attempt to post the first
   limitation of the GitHub API.
 - `num_comments_as_exitcode`: Set the exit code to be the amount of comments (enabled by default).
 - `extra_arguments`: Extra arguments to pass to the clang-tidy invocation.
-- `include_context_lines`: Include the 3 context lines above and below changes. These can still be commented on in Github Reviews (disabled by default).
+- `include_context_lines`: Include the 3 context lines above and below changes (default: false).
+  This is useful when removing lines, as it allows `clang-tidy` to raise warnings on the context
+  around deleted lines.
 
 ## Outputs
 
