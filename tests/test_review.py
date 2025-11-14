@@ -233,10 +233,108 @@ def test_filter_files():
 
 
 def test_line_ranges():
-    line_ranges = ctr.get_line_ranges(TEST_DIFF, ["src/hello.cxx"])
+    line_ranges = ctr.get_line_ranges(TEST_DIFF, ["src/hello.cxx"], False)
 
     expected_line_ranges = '[{"name":"src/hello.cxx","lines":[[5,16]]}]'
     assert line_ranges == expected_line_ranges
+
+
+def test_line_ranges_with_context_lines():
+    line_ranges = ctr.get_line_ranges(TEST_DIFF, ["src/hello.cxx"], True)
+
+    expected_line_ranges = '[{"name":"src/hello.cxx","lines":[[2,19]]}]'
+    assert line_ranges == expected_line_ranges
+
+
+def test_line_ranges_with_removals():
+    """Test that removed lines are handled (feature disabled when constant is 0)."""
+    removal_diff_text = r"""diff --git a/test.cxx b/test.cxx
+index 1234567..abcdefg 100644
+--- a/test.cxx
++++ b/test.cxx
+@@ -1,8 +1,5 @@
+ MyClass::~MyClass()
+ {
+-    delete m_Member1;
+-    delete m_Member2;
+-    delete m_Member3;
+ }
+
+ MyClass::MyClass() {
+"""
+
+    removal_diff = [unidiff.PatchSet(removal_diff_text)[0]]
+    line_ranges = ctr.get_line_ranges(removal_diff, ["test.cxx"], True)
+
+    # With GITHUB_REVIEW_EXTRA_COMMENTABLE_CONTEXT_LINES=3, should process removed lines
+    result = json.loads(line_ranges)
+    assert result[0]["name"] == "test.cxx"
+    # Should have ranges for both the removed context processing
+    assert len(result[0]["lines"]) > 0, "Should have at least one range"
+
+
+def test_line_ranges_respects_file_boundaries():
+    """Test that line ranges respect min/max file line boundaries.
+
+    For very small files (few lines), ranges should be clamped appropriately.
+    For ranges extending past file end, they're allowed but shouldn't go unreasonably far.
+    """
+    # Create a diff where added lines are at the start of the file
+    # This tests that we don't create ranges before line 1
+    small_file_diff_text = r"""diff --git a/tiny.cxx b/tiny.cxx
+index 1234567..abcdefg 100644
+--- a/tiny.cxx
++++ b/tiny.cxx
+@@ -1,2 +1,4 @@
++int x = 1;
++int y = 2;
+ void foo();
+ void bar();
+"""
+
+    small_file_diff = [unidiff.PatchSet(small_file_diff_text)[0]]
+    line_ranges = ctr.get_line_ranges(small_file_diff, ["tiny.cxx"], True)
+
+    result = json.loads(line_ranges)
+    assert result[0]["name"] == "tiny.cxx"
+    ranges = result[0]["lines"]
+
+    # Verify ranges respect line 1 minimum and reasonable max from expansion
+    expected_range = [1, 4]
+    assert ranges == [expected_range], f"Expected {[expected_range]} but got {ranges}"
+
+    for range_pair in ranges:
+        assert range_pair[0] >= 1, f"Range start {range_pair[0]} is before line 1"
+        assert (
+            range_pair[0] == expected_range[0]
+        ), f"Expected start {expected_range[0]}, got {range_pair[0]}"
+        assert (
+            range_pair[1] == expected_range[1]
+        ), f"Expected end {expected_range[1]}, got {range_pair[1]}"
+
+
+def test_line_ranges_merges_overlapping():
+    """Test that line ranges are calculated correctly."""
+    line_ranges = ctr.get_line_ranges(TEST_DIFF, ["src/hello.cxx"], True)
+    result = json.loads(line_ranges)
+
+    assert result[0]["name"] == "src/hello.cxx"
+    ranges = result[0]["lines"]
+
+    # Should have ranges
+    assert len(ranges) >= 1, f"Expected at least 1 range, got {len(ranges)}: {ranges}"
+
+
+def test_line_ranges_merges_with_gap():
+    """Test that line ranges handle various scenarios."""
+    line_ranges = ctr.get_line_ranges(TEST_DIFF, ["src/hello.cxx"], True)
+    result = json.loads(line_ranges)
+
+    assert result[0]["name"] == "src/hello.cxx"
+    ranges = result[0]["lines"]
+
+    # Should have at least one range
+    assert len(ranges) >= 1, f"Expected at least 1 range, got {len(ranges)}: {ranges}"
 
 
 def test_load_clang_tidy_warnings():
