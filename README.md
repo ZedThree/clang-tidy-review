@@ -36,11 +36,11 @@ jobs:
 
     # Optionally generate compile_commands.json
 
-    - uses: ZedThree/clang-tidy-review@v0.21.0
+    - uses: ZedThree/clang-tidy-review@v0.22.0
       id: review
 
     # Uploads an artefact containing clang_fixes.json
-    - uses: ZedThree/clang-tidy-review/upload@v0.21.0
+    - uses: ZedThree/clang-tidy-review/upload@v0.22.0
       id: upload-review
 
     # If there are any comments, fail the check
@@ -151,7 +151,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - uses: ZedThree/clang-tidy-review@v0.21.0
+    - uses: ZedThree/clang-tidy-review@v0.22.0
       id: review
       with:
         # List of packages to install
@@ -209,7 +209,7 @@ jobs:
     - name: Set base_dir
       run: echo "base_dir=$(pwd)" >> $GITHUB_ENV
 
-    - uses: ZedThree/clang-tidy-review@v0.21.0
+    - uses: ZedThree/clang-tidy-review@v0.22.0
       id: review
       with:
         # Tell clang-tidy-review the base directory.
@@ -240,11 +240,11 @@ jobs:
 
     # Optionally generate compile_commands.json
 
-    - uses: ZedThree/clang-tidy-review@v0.21.0
+    - uses: ZedThree/clang-tidy-review@v0.22.0
       with:
         split_workflow: true
 
-    - uses: ZedThree/clang-tidy-review/upload@v0.21.0
+    - uses: ZedThree/clang-tidy-review/upload@v0.22.0
 ```
 The `clang-tidy-review/upload` Action will automatically upload the following
 files as workflow artefacts:
@@ -270,7 +270,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: ZedThree/clang-tidy-review/post@v0.21.0
+      - uses: ZedThree/clang-tidy-review/post@v0.22.0
         # lgtm_comment_body, max_comments, and annotations need to be set on the posting workflow in a split setup
         with:
           # adjust options as necessary
