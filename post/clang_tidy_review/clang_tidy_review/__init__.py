@@ -26,15 +26,16 @@ import threading
 import zipfile
 from operator import itemgetter
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Literal, Optional, TypedDict
 
 import unidiff
 import urllib3
 import yaml
 from github import Auth, Github
 from github.PaginatedList import PaginatedList
+from github.PullRequest import PullRequest as RGHPullRequest
 from github.PullRequest import ReviewComment
-from github.Requester import Requester
+from github.PullRequestComment import PullRequestComment
 from github.WorkflowRun import WorkflowRun
 
 DIFF_HEADER_LINE_LENGTH = 5
@@ -58,6 +59,53 @@ class PRReview(TypedDict):
     body: str
     event: str
     comments: list[ReviewComment]
+
+
+# These types are from include/clang/Tooling/DiagnosticsYaml.h
+# and include/clang/Tooling/ReplacementsYaml.h
+class ClangFileByteRange(TypedDict):
+    FilePath: str
+    FileOffset: int
+    Length: int
+
+
+class ClangReplacement(TypedDict):
+    FilePath: str
+    Offset: int
+    Length: int
+    ReplacementText: str
+    # These are added by us
+    LineNumber: Optional[int]
+    EndLineNumber: Optional[int]
+
+
+class ClangDiagnosticMessage(TypedDict):
+    Message: str
+    FilePath: Optional[str]
+    FileOffset: Optional[int]
+    Replacements: list[ClangReplacement]
+    Ranges: Optional[ClangFileByteRange]
+
+
+class ClangDiagnostic(TypedDict):
+    DiagnosticName: str
+    DiagnosticMessage: ClangDiagnosticMessage
+    Notes: Optional[list[ClangDiagnosticMessage]]
+    Level: Optional[Literal["Warning", "Error", "Remark"]]
+    BuildDirectory: Optional[str]
+
+
+class ClangTUDiagnostics(TypedDict):
+    MainSourceFile: str
+    Diagnostics: list[ClangDiagnostic]
+
+
+OffsetLookup = dict[str, list[int]]
+"""A dictionary to look up file offsets for a given line (filename -> file-offsets).
+For each file, the file offsets contain the cumulative line lengths.
+To look up the file offset where line 2 starts in "foo.c", look up ``map["foo.c"][2]``.
+Lines are 0-indexed.
+"""
 
 
 class HashableComment:
@@ -157,12 +205,12 @@ def get_auth_from_arguments(args: argparse.Namespace) -> Auth.Auth:
 
 
 def build_clang_tidy_warnings(
-    base_invocation: List,
-    env: dict,
+    base_invocation: list[str],
+    env: dict[str, str],
     tmpdir: Path,
     task_queue: queue.Queue,
     lock: threading.Lock,
-    failed_files: List,
+    failed_files: list[str],
 ) -> None:
     """Run clang-tidy on the given files and save output into a temporary file"""
 
@@ -200,7 +248,7 @@ def build_clang_tidy_warnings(
         task_queue.task_done()
 
 
-def clang_tidy_version(clang_tidy_binary: pathlib.Path):
+def clang_tidy_version(clang_tidy_binary: pathlib.Path) -> int:
     try:
         version_out = subprocess.run(
             [clang_tidy_binary, "--version"],
@@ -243,15 +291,15 @@ def config_file_or_checks(
     return "--config"
 
 
-def merge_replacement_files(tmpdir: Path, mergefile: Path):
+def merge_replacement_files(tmpdir: Path, mergefile: Path) -> None:
     """Merge all replacement files in a directory into a single file"""
     # The fixes suggested by clang-tidy >= 4.0.0 are given under
     # the top level key 'Diagnostics' in the output yaml files
     mergekey = "Diagnostics"
-    merged = []
+    merged: list[ClangDiagnostic] = []
     for replacefile in tmpdir.glob("*.yaml"):
         with replacefile.open() as f:
-            content = yaml.safe_load(f)
+            content: ClangTUDiagnostics | None = yaml.safe_load(f)
         if not content:
             continue  # Skip empty files.
         merged.extend(content.get(mergekey, []))
@@ -261,12 +309,12 @@ def merge_replacement_files(tmpdir: Path, mergefile: Path):
         # include/clang/Tooling/ReplacementsYaml.h, but the value
         # is actually never used inside clang-apply-replacements,
         # so we set it to '' here.
-        output = {"MainSourceFile": "", mergekey: merged}
+        output: ClangTUDiagnostics = {"MainSourceFile": "", mergekey: merged}
         with mergefile.open("w") as out:
             yaml.safe_dump(output, out)
 
 
-def load_clang_tidy_warnings(fixes_file: Path) -> Dict:
+def load_clang_tidy_warnings(fixes_file: Path) -> ClangTUDiagnostics:
     """Read clang-tidy warnings from fixes_file. Can be produced by build_clang_tidy_warnings"""
     try:
         with fixes_file.open() as f:
@@ -288,7 +336,7 @@ class PullRequest:
 
         github = Github(auth=self.auth, base_url=self.api_url)
         self.repo = github.get_repo(f"{repo}")
-        self._pull_request = None
+        self._pull_request: Optional[RGHPullRequest] = None
 
     @property
     def token(self):
@@ -304,13 +352,13 @@ class PullRequest:
         return self._pull_request
 
     @property
-    def head_sha(self):
+    def head_sha(self) -> str:
         if self._pull_request is None:
             raise RuntimeError("Missing PR")
 
         return self._pull_request.get_commits().reversed[0].sha
 
-    def get_pr_diff(self) -> List[unidiff.PatchedFile]:
+    def get_pr_diff(self) -> list[unidiff.PatchedFile]:
         """Download the PR diff, return a list of PatchedFile"""
 
         _, data = self.repo._requester.requestJsonAndCheck(
@@ -335,11 +383,11 @@ class PullRequest:
         """Get the username of the PR author. This is used in google-readability-todo"""
         return self.pull_request.user.login
 
-    def get_pr_comments(self):
+    def get_pr_comments(self) -> PaginatedList[PullRequestComment]:
         """Download the PR review comments using the comfort-fade preview headers"""
         return self.pull_request.get_review_comments()
 
-    def post_lgtm_comment(self, body: str):
+    def post_lgtm_comment(self, body: str) -> None:
         """Post a "LGTM" comment if everything's clean, making sure not to spam"""
 
         if not body:
@@ -354,11 +402,11 @@ class PullRequest:
 
         self.pull_request.create_issue_comment(body)
 
-    def post_review(self, review: PRReview):
+    def post_review(self, review: PRReview) -> None:
         """Submit a completed review"""
         self.pull_request.create_review(**review)
 
-    def post_annotations(self, review):
+    def post_annotations(self, review: dict[str, Any]) -> None:
         headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {self.token}",
@@ -379,12 +427,12 @@ def message_group(title: str):
         print("::endgroup::", flush=True)
 
 
-def make_file_line_lookup(diff):
+def make_file_line_lookup(diff: list[unidiff.PatchedFile]) -> dict[str, dict[int, int]]:
     """Get a lookup table for each file in diff, to convert between source
     line number to line number in the diff
 
     """
-    lookup = {}
+    lookup: dict[str, dict[int, int]] = {}
     for file in diff:
         filename = file.target_file[2:]
         lookup[filename] = {}
@@ -399,14 +447,14 @@ def make_file_line_lookup(diff):
     return lookup
 
 
-def make_file_offset_lookup(filenames):
+def make_file_offset_lookup(filenames: list[str]) -> OffsetLookup:
     """Create a lookup table to convert between character offset and line
     number for the list of files in `filenames`.
 
     This is a dict of the cumulative sum of the line lengths for each file.
 
     """
-    lookup = {}
+    lookup: OffsetLookup = {}
 
     for filename in filenames:
         with Path(filename).open() as file:
@@ -422,7 +470,9 @@ def make_file_offset_lookup(filenames):
     return lookup
 
 
-def get_diagnostic_file_path(clang_tidy_diagnostic, build_dir):
+def get_diagnostic_file_path(
+    clang_tidy_diagnostic: ClangDiagnostic, build_dir: str
+) -> str:
     # Sometimes, clang-tidy gives us an absolute path, so everything is fine.
     # Sometimes however it gives us a relative path that is realtive to the
     # build directory, so we prepend that.
@@ -453,7 +503,9 @@ def get_diagnostic_file_path(clang_tidy_diagnostic, build_dir):
     return ""
 
 
-def find_line_number_from_offset(offset_lookup, filename, offset):
+def find_line_number_from_offset(
+    offset_lookup: OffsetLookup, filename: str, offset: int
+) -> int:
     """Work out which line number `offset` corresponds to using `offset_lookup`.
 
     The line number (0-indexed) is the index of the first line offset
@@ -472,7 +524,7 @@ def find_line_number_from_offset(offset_lookup, filename, offset):
     return -1
 
 
-def read_one_line(filename, line_offset):
+def read_one_line(filename: str, line_offset: int) -> str:
     """Read a single line from a source file"""
     # Could cache the files instead of opening them each time?
     with Path(filename).open() as file:
@@ -480,7 +532,9 @@ def read_one_line(filename, line_offset):
         return file.readline().rstrip("\n")
 
 
-def collate_replacement_sets(diagnostic, offset_lookup):
+def collate_replacement_sets(
+    diagnostic: ClangDiagnosticMessage, offset_lookup: OffsetLookup
+) -> dict[int, list[ClangReplacement]]:
     """Return a dict of replacements on the same or consecutive lines, indexed by line number
 
     We need this as we have to apply all the replacements on one line at the same time
@@ -518,7 +572,7 @@ def collate_replacement_sets(diagnostic, offset_lookup):
         )
 
     # Now we can group them into consecutive lines
-    groups = []
+    groups: list[list[ClangReplacement]] = []
     for index, replacement in enumerate(diagnostic["Replacements"]):
         if index == 0:
             # First one starts a new group, always
@@ -538,7 +592,11 @@ def collate_replacement_sets(diagnostic, offset_lookup):
     return {g[0]["LineNumber"]: g for g in groups}
 
 
-def replace_one_line(replacement_set, line_num, offset_lookup):
+def replace_one_line(
+    replacement_set: list[ClangReplacement],
+    line_num: int,
+    offset_lookup: OffsetLookup,
+) -> tuple[str, str]:
     """Apply all the replacements in replacement_set at the same time"""
 
     filename = replacement_set[0]["FilePath"]
@@ -549,7 +607,7 @@ def replace_one_line(replacement_set, line_num, offset_lookup):
     insert_offsets: list[tuple[Optional[int], Optional[int]]] = [(0, 0)]
     # Read all the source lines into a dict so we only get one copy of
     # each line, though we might read the same line in multiple times
-    source_lines = {}
+    source_lines: dict[int, str] = {}
     for replacement in replacement_set:
         start = replacement["Offset"] - line_offset
         end = start + replacement["Length"]
@@ -569,7 +627,7 @@ def replace_one_line(replacement_set, line_num, offset_lookup):
 
     insert_offsets.append((None, None))
 
-    fragments = []
+    fragments: list[str] = []
     for (_, start), (end, _) in zip(insert_offsets[:-1], insert_offsets[1:]):
         fragments.append(source_line[start:end])
 
@@ -580,7 +638,7 @@ def replace_one_line(replacement_set, line_num, offset_lookup):
     return source_line, new_line + fragments[-1]
 
 
-def format_ordinary_line(source_line, line_offset):
+def format_ordinary_line(source_line: str, line_offset: int) -> str:
     """Format a single C++ line with a diagnostic indicator"""
 
     return textwrap.dedent(
@@ -593,7 +651,11 @@ def format_ordinary_line(source_line, line_offset):
     )
 
 
-def format_diff_line(diagnostic, offset_lookup, source_line, line_offset, line_num):
+def format_diff_line(
+    diagnostic: ClangDiagnosticMessage,
+    offset_lookup: OffsetLookup,
+    line_num: int,
+) -> tuple[str, int]:
     """Format a replacement as a Github suggestion or diff block"""
 
     end_line = line_num
@@ -644,7 +706,7 @@ def format_diff_line(diagnostic, offset_lookup, source_line, line_offset, line_n
     return code_blocks, end_line
 
 
-def try_relative(path) -> pathlib.Path:
+def try_relative(path: str) -> pathlib.Path:
     """Try making `path` relative to current directory, otherwise make it an absolute path"""
     try:
         here = pathlib.Path.cwd()
@@ -653,7 +715,7 @@ def try_relative(path) -> pathlib.Path:
         return pathlib.Path(path).resolve()
 
 
-def fix_absolute_paths(build_compile_commands, base_dir):
+def fix_absolute_paths(build_compile_commands: str, base_dir: str) -> None:
     """Update absolute paths in compile_commands.json to new location, if
     compile_commands.json was created outside the Actions container
     """
@@ -680,7 +742,9 @@ def fix_absolute_paths(build_compile_commands, base_dir):
         f.write(modified_compile_commands)
 
 
-def format_notes(notes, offset_lookup):
+def format_notes(
+    notes: list[ClangDiagnosticMessage], offset_lookup: OffsetLookup
+) -> str:
     """Format an array of notes into a single string"""
 
     code_blocks = ""
@@ -696,7 +760,7 @@ def format_notes(notes, offset_lookup):
         line_num = find_line_number_from_offset(
             offset_lookup, resolved_path, note["FileOffset"]
         )
-        line_offset = note["FileOffset"] - offset_lookup[resolved_path][line_num]
+        line_offset: int = note["FileOffset"] - offset_lookup[resolved_path][line_num]
         source_line = read_one_line(
             resolved_path, offset_lookup[resolved_path][line_num]
         )
@@ -713,8 +777,12 @@ def format_notes(notes, offset_lookup):
 
 
 def make_comment_from_diagnostic(
-    diagnostic_name, diagnostic, filename, offset_lookup, notes
-):
+    diagnostic_name: str,
+    diagnostic: ClangDiagnosticMessage,
+    filename: str,
+    offset_lookup: OffsetLookup,
+    notes: list[ClangDiagnosticMessage],
+) -> tuple[str, int]:
     """Create a comment from a diagnostic
 
     Comment contains the diagnostic message, plus its name, along with
@@ -726,7 +794,7 @@ def make_comment_from_diagnostic(
     line_num = find_line_number_from_offset(
         offset_lookup, filename, diagnostic["FileOffset"]
     )
-    line_offset = diagnostic["FileOffset"] - offset_lookup[filename][line_num]
+    line_offset: int = diagnostic["FileOffset"] - offset_lookup[filename][line_num]
 
     source_line = read_one_line(filename, offset_lookup[filename][line_num])
     end_line = line_num
@@ -738,9 +806,7 @@ def make_comment_from_diagnostic(
     )
 
     if diagnostic["Replacements"]:
-        code_blocks, end_line = format_diff_line(
-            diagnostic, offset_lookup, source_line, line_offset, line_num
-        )
+        code_blocks, end_line = format_diff_line(diagnostic, offset_lookup, line_num)
     else:
         # No fixit, so just point at the problem
         code_blocks = format_ordinary_line(source_line, line_offset)
@@ -755,14 +821,17 @@ def make_comment_from_diagnostic(
 
 
 def create_review_file(
-    clang_tidy_warnings, diff_lookup, offset_lookup, build_dir
+    clang_tidy_warnings: ClangTUDiagnostics,
+    diff_lookup: dict[str, dict[int, int]],
+    offset_lookup: OffsetLookup,
+    build_dir: str,
 ) -> Optional[PRReview]:
     """Create a Github review from a set of clang-tidy diagnostics"""
 
     if "Diagnostics" not in clang_tidy_warnings:
         return None
 
-    comments: List[ReviewComment] = []
+    comments: list[ReviewComment] = []
 
     for diagnostic in clang_tidy_warnings["Diagnostics"]:
         try:
@@ -824,7 +893,9 @@ def create_review_file(
 
 
 def make_timing_summary(
-    clang_tidy_profiling: Dict, real_time: datetime.timedelta, sha: Optional[str] = None
+    clang_tidy_profiling: dict[str, dict[str, float]],
+    real_time: datetime.timedelta,
+    sha: Optional[str] = None,
 ) -> str:
     if not clang_tidy_profiling:
         return ""
@@ -867,7 +938,7 @@ def make_timing_summary(
             f = f"[{f}]({blob}/{f})"
         file_summary += f"|{f}|{u:.2f}|{s:.2f}|{w:.2f}|\n"
 
-    check_timings = {}
+    check_timings: dict[str, tuple[float, float, float]] = {}
     for timings in clang_tidy_profiling.values():
         for check, timing in timings.items():
             if check in [wall_key, user_key, sys_key]:
@@ -907,9 +978,11 @@ def make_timing_summary(
     )
 
 
-def filter_files(diff, include: List[str], exclude: List[str]) -> List:
+def filter_files(
+    diff: list[unidiff.PatchedFile], include: list[str], exclude: list[str]
+) -> list[str]:
     changed_files = [filename.target_file[2:] for filename in diff]
-    files = []
+    files: list[str] = []
     for pattern in include:
         files.extend(fnmatch.filter(changed_files, pattern))
         print(f"include: {pattern}, file list now: {files}")
@@ -929,8 +1002,8 @@ def create_review(
     max_task: int,
     include_context_lines: bool,
     extra_arguments: list[str],
-    include: List[str],
-    exclude: List[str],
+    include: list[str],
+    exclude: list[str],
 ) -> Optional[PRReview]:
     """Given the parameters, runs clang-tidy and creates a review.
     If no files were changed, or no warnings could be found, None will be returned.
@@ -1068,7 +1141,9 @@ def create_review(
         return review
 
 
-def download_artifacts(pull: PullRequest, workflow_id: int):
+def download_artifacts(
+    pull: PullRequest, workflow_id: int
+) -> tuple[Optional[Metadata], Optional[PRReview]]:
     """Attempt to automatically download the artifacts from a previous
     run of the review Action"""
 
@@ -1145,7 +1220,7 @@ def load_review(review_file: pathlib.Path) -> Optional[PRReview]:
         return payload or None
 
 
-def load_and_merge_profiling() -> Dict:
+def load_and_merge_profiling() -> dict[str, dict[str, float]]:
     result = {}
     for profile_file in PROFILE_DIR.glob("*.json"):
         profile_dict = json.load(profile_file.open())
@@ -1168,8 +1243,8 @@ def load_and_merge_profiling() -> Dict:
     return result
 
 
-def load_and_merge_reviews(review_files: List[pathlib.Path]) -> Optional[PRReview]:
-    reviews = []
+def load_and_merge_reviews(review_files: list[pathlib.Path]) -> Optional[PRReview]:
+    reviews: list[PRReview] = []
     for file in review_files:
         review = load_review(file)
         if review is not None and len(review.get("comments", [])) > 0:
@@ -1180,7 +1255,7 @@ def load_and_merge_reviews(review_files: List[pathlib.Path]) -> Optional[PRRevie
 
     result = reviews[0]
 
-    comments = set()
+    comments: set[HashableComment] = set()
     for review in reviews:
         comments.update(HashableComment(**c) for c in review["comments"])
 
@@ -1189,7 +1264,9 @@ def load_and_merge_reviews(review_files: List[pathlib.Path]) -> Optional[PRRevie
     return result
 
 
-def get_line_ranges(diff, files, include_context_lines: bool):
+def get_line_ranges(
+    diff: list[unidiff.PatchedFile], files: list[str], include_context_lines: bool
+) -> str:
     """Return the line ranges of added lines in diff, suitable for the
     line-filter argument of clang-tidy.
 
@@ -1197,11 +1274,11 @@ def get_line_ranges(diff, files, include_context_lines: bool):
     removed lines which are commentable on Github.
     """
 
-    lines_by_file = {}
+    lines_by_file: dict[str, list[int]] = {}
     for filename in diff:
         if filename.target_file[2:] not in files:
             continue
-        commentable_line_numbers = []
+        commentable_line_numbers: list[int] = []
 
         for hunk in filename:
             for line in hunk:
@@ -1211,12 +1288,12 @@ def get_line_ranges(diff, files, include_context_lines: bool):
         for _, group in itertools.groupby(
             enumerate(commentable_line_numbers), lambda ix: ix[0] - ix[1]
         ):
-            groups = list(map(itemgetter(1), group))
+            groups: list[int] = list(map(itemgetter(1), group))
             lines_by_file.setdefault(filename.target_file[2:], []).append(
                 [groups[0], groups[-1]]
             )
 
-    line_filter_json = []
+    line_filter_json: list[dict[str, Any]] = []
     for name, lines in lines_by_file.items():
         line_filter_json.append({"name": name, "lines": lines})
         # On windows, unidiff has forward slashes but cl.exe expects backslashes.
@@ -1229,7 +1306,9 @@ def get_line_ranges(diff, files, include_context_lines: bool):
     return json.dumps(line_filter_json, separators=(",", ":"))
 
 
-def cull_comments(pull_request: PullRequest, review, max_comments):
+def cull_comments(
+    pull_request: PullRequest, review: PRReview, max_comments: int
+) -> PRReview:
     """Remove comments from review that have already been posted, and keep
     only the first max_comments
 
@@ -1359,7 +1438,7 @@ def post_review(
     return total_comments
 
 
-def convert_comment_to_annotations(comment):
+def convert_comment_to_annotations(comment: ReviewComment) -> dict[str, Any]:
     return {
         "path": comment["path"],
         "start_line": comment.get("start_line", comment["line"]),
@@ -1389,7 +1468,7 @@ def post_annotations(
         print("No warnings to report, LGTM!")
         pull_request.post_annotations(body)
 
-    comments = []
+    comments: list[str] = []
     for comment in review["comments"]:
         first_line = comment["body"].splitlines()[0]
         comments.append(
@@ -1413,7 +1492,7 @@ def post_annotations(
     return total_comments
 
 
-def bool_argument(user_input) -> bool:
+def bool_argument(user_input: str) -> bool:
     """Convert text to bool"""
     user_input = str(user_input).upper()
     if user_input == "TRUE":

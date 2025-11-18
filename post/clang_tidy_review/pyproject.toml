@@ -65,3 +65,6 @@ extend-select = [
   "EXE",         # flake8-executable
   "FURB",        # refurb
 ]
+ignore = [
+  "UP045",       # non-pep604-annotation-optional
+]
