@@ -368,11 +368,7 @@ def test_read_one_line():
 
 
 def test_format_diff_line():
-    source_line = "const std::string selective_hello(std::string name) {"
-
-    code_blocks, end_line = ctr.format_diff_line(
-        TEST_DIAGNOSTIC, TEST_OFFSET_LOOKUP, source_line, 0, 4
-    )
+    code_blocks, end_line = ctr.format_diff_line(TEST_DIAGNOSTIC, TEST_OFFSET_LOOKUP, 4)
 
     expected_replacement = textwrap.dedent(
         """
