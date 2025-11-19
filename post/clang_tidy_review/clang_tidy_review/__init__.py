@@ -17,6 +17,7 @@ import pathlib
 import pprint
 import queue
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -1001,7 +1002,7 @@ def create_review(
     config_file: str,
     max_task: int,
     include_context_lines: bool,
-    extra_arguments: list[str],
+    extra_arguments: str,
     include: list[str],
     exclude: list[str],
 ) -> Optional[PRReview]:
@@ -1063,7 +1064,10 @@ def create_review(
         "--enable-check-profile",
         f"-store-check-profile={PROFILE_DIR}",
     ]
-    base_invocation += extra_arguments
+
+    if extra_arguments:
+        base_invocation += shlex.split(extra_arguments)
+
     if config:
         print(f"Using config: {config}")
         base_invocation.append(config)
