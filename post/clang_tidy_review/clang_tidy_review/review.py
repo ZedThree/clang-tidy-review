@@ -7,7 +7,6 @@
 
 import argparse
 import re
-import shlex
 import subprocess
 from pathlib import Path
 
@@ -188,7 +187,7 @@ def main():
         args.config_file,
         args.parallel,
         args.include_context_lines,
-        shlex.split(args.extra_arguments),
+        args.extra_arguments,
         include,
         exclude,
     )
