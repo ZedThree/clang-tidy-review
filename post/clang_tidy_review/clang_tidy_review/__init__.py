@@ -1011,9 +1011,6 @@ def create_review(
 
     """
 
-    if max_task == 0:
-        max_task = multiprocessing.cpu_count()
-
     diff = pull_request.get_pr_diff()
     print(f"\nDiff from GitHub PR:\n{diff}\n")
 
@@ -1073,6 +1070,12 @@ def create_review(
         base_invocation.append(config)
     else:
         print("Using recursive directory config")
+
+    if max_task == 0:
+        max_task = multiprocessing.cpu_count()
+
+    # Don't run on more threads than there are files
+    max_task = min(max_task, len(files))
 
     print(f"Spawning a task queue with {max_task} processes")
     start = datetime.datetime.now()
