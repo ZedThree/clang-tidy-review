@@ -95,7 +95,7 @@ runs:
     - --build_dir=${{ inputs.build_dir }}
     - --base_dir=${{ inputs.base_dir }}
     - --clang_tidy_checks=${{ inputs.clang_tidy_checks }}
-    - --extra-arguments='${{ inputs.extra_arguments }}'
+    - --extra-arguments=${{ inputs.extra_arguments }}
     - --config_file=${{ inputs.config_file }}
     - --include='${{ inputs.include }}'
     - --exclude='${{ inputs.exclude }}'
