@@ -109,6 +109,10 @@ Lines are 0-indexed.
 """
 
 
+ErrorAction = Literal["post", "skip", "abort"]
+"""Action to take when encountering compile errors from Clang (clang-diagnostic-error)."""
+
+
 class HashableComment:
     def __init__(self, body: str, line: int, path: str, side: str, **kwargs):
         self.body = body
@@ -826,11 +830,22 @@ def create_review_file(
     diff_lookup: dict[str, dict[int, int]],
     offset_lookup: OffsetLookup,
     build_dir: str,
+    error_action: ErrorAction,
 ) -> Optional[PRReview]:
     """Create a Github review from a set of clang-tidy diagnostics"""
 
     if "Diagnostics" not in clang_tidy_warnings:
         return None
+
+    if error_action == "abort":
+        errors = [
+            d for d in clang_tidy_warnings["Diagnostics"] if d.get("Level") == "Error"
+        ]
+        if len(errors) > 0:
+            with message_group("Errors"):
+                for e in errors:
+                    print(e["DiagnosticMessage"])
+            raise RuntimeError("'error-action' set to 'abort'")
 
     comments: list[ReviewComment] = []
 
@@ -842,6 +857,10 @@ def create_review_file(
             diagnostic_message = diagnostic
 
         if diagnostic_message["FilePath"] == "":
+            continue
+
+        if error_action == "skip" and diagnostic.get("Level") == "Error":
+            print(f"Skipping '{diagnostic_message}'")
             continue
 
         comment_body, end_line = make_comment_from_diagnostic(
@@ -1005,6 +1024,7 @@ def create_review(
     extra_arguments: str,
     include: list[str],
     exclude: list[str],
+    error_action: ErrorAction,
 ) -> Optional[PRReview]:
     """Given the parameters, runs clang-tidy and creates a review.
     If no files were changed, or no warnings could be found, None will be returned.
@@ -1140,7 +1160,7 @@ def create_review(
 
     with message_group("Creating review from warnings"):
         review = create_review_file(
-            clang_tidy_warnings, diff_lookup, offset_lookup, build_dir
+            clang_tidy_warnings, diff_lookup, offset_lookup, build_dir, error_action
         )
         with REVIEW_FILE.open("w") as review_file:
             json.dump(review, review_file)

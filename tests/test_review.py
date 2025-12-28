@@ -89,6 +89,27 @@ TEST_DIAGNOSTIC = {
         }
     ],
 }
+TEST_TU_DIAGNOSTICS = {
+    "Diagnostics": [
+        {
+            "DiagnosticMessage": TEST_DIAGNOSTIC,
+            "DiagnosticName": "readability-const-return-type",
+            "Level": "Warning",
+            "BuildDirectory": str(TEST_FILE.parent),
+        },
+        {
+            "BuildDirectory": str(TEST_FILE.parent),
+            "DiagnosticMessage": {
+                "FileOffset": 41,
+                "FilePath": str(TEST_FILE),
+                "Message": "unknown type name 'whatever'",
+                "Replacements": [],
+            },
+            "DiagnosticName": "clang-diagnostic-error",
+            "Level": "Error",
+        },
+    ]
+}
 
 
 class MockClangTidyVersionProcess:
@@ -201,7 +222,7 @@ def test_save_load_metadata(tmp_path, monkeypatch):
     assert meta["pr_number"] == 42
 
 
-def make_diff():
+def make_diff(filename="src/hello.cxx"):
     with open(TEST_DIR / "src/hello_original.cxx") as f:
         old = f.read()
 
@@ -212,13 +233,15 @@ def make_diff():
         difflib.unified_diff(
             old.splitlines(),
             new.splitlines(),
-            fromfile="a/src/hello.cxx",
-            tofile="b/src/hello.cxx",
+            fromfile=f"a/{filename}",
+            tofile=f"b/{filename}",
             lineterm="",
         )
     )
 
-    diff_cxx = f"diff --git a/src/hello.cxx b/src/hello.cxx\nindex 98edef4..6651631 100644\n{diff}"
+    diff_cxx = (
+        f"diff --git a/{filename} b/{filename}\nindex 98edef4..6651631 100644\n{diff}"
+    )
     diff_cpp = diff_cxx.replace("cxx", "cpp")
     diff_goodbye = diff_cxx.replace("hello", "goodbye")
 
@@ -574,3 +597,39 @@ def test_timing_summary(monkeypatch):
     assert "time.clang-tidy.total.sys" in profiling["hello.cxx"].keys()
     summary = ctr.make_timing_summary(profiling, datetime.timedelta(seconds=42))
     assert len(summary.split("\n")) == 22
+
+
+def test_error_action_post():
+    review = ctr.create_review_file(
+        TEST_TU_DIAGNOSTICS,
+        ctr.make_file_line_lookup(make_diff(ctr.try_relative(TEST_FILE))),
+        ctr.make_file_offset_lookup([str(TEST_FILE)]),
+        str(TEST_FILE.parent.parent),
+        "post",
+    )
+    assert len(review["comments"]) == 2
+    assert "clang-diagnostic-error" not in review["comments"][0]["body"]
+    assert "clang-diagnostic-error" in review["comments"][1]["body"]
+
+
+def test_error_action_skip():
+    review = ctr.create_review_file(
+        TEST_TU_DIAGNOSTICS,
+        ctr.make_file_line_lookup(make_diff(ctr.try_relative(TEST_FILE))),
+        ctr.make_file_offset_lookup([str(TEST_FILE)]),
+        str(TEST_FILE.parent.parent),
+        "skip",
+    )
+    assert len(review["comments"]) == 1
+    assert "clang-diagnostic-error" not in review["comments"][0]["body"]
+
+
+def test_error_action_abort():
+    with pytest.raises(RuntimeError):
+        ctr.create_review_file(
+            TEST_TU_DIAGNOSTICS,
+            ctr.make_file_line_lookup(make_diff()),
+            ctr.make_file_offset_lookup([str(TEST_FILE)]),
+            str(TEST_FILE.parent),
+            "abort",
+        )
