@@ -135,6 +135,13 @@ def main():
         default=False,
     )
     parser.add_argument(
+        "--error-action",
+        help="Action to take when encountering compile errors from Clang (clang-diagnostic-error).",
+        type=str,
+        default="post",
+        choices=("post", "skip", "abort"),
+    )
+    parser.add_argument(
         "--dry-run", help="Run and generate review, but don't post", action="store_true"
     )
     add_auth_arguments(parser)
@@ -190,6 +197,7 @@ def main():
         args.extra_arguments,
         include,
         exclude,
+        args.error_action,
     )
 
     with message_group("Saving metadata"):

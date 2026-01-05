@@ -123,6 +123,9 @@ at once, so `clang-tidy-review` will only attempt to post the first
 - `include_context_lines`: Include the 3 context lines above and below changes (default: false).
   This is useful when removing lines, as it allows `clang-tidy` to raise warnings on the context
   around deleted lines.
+- `error_action`: Action to take when encountering compile errors from Clang (clang-diagnostic-error).
+  'post' (default) will post the error as-is. 'skip' will ignore the error but post other errors.
+  'abort' will stop the action with an error if one is found.
 
 ## Outputs
 

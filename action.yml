@@ -77,6 +77,10 @@ inputs:
     description: "Include the 3 context lines above and below changes (default: false). This is useful when removing lines, as it allows `clang-tidy` to raise warnings on the context  around deleted lines. Include the 3 context lines above and below changes. These can still be commented on in Github Reviews."
     required: false
     default: false
+  error_action:
+    description: "Action to take when encountering compile errors from Clang (clang-diagnostic-error). 'post' (default) will post the error as-is. 'skip' will ignore the error but post other errors. 'abort' will stop the action with an error if one is found."
+    required: false
+    default: post
   pr:
     default: ${{ github.event.pull_request.number }}
   repo:
@@ -108,3 +112,4 @@ runs:
     - --annotations=${{ inputs.annotations }}
     - --parallel=${{ inputs.parallel }}
     - --include-context-lines=${{ inputs.include_context_lines }}
+    - --error-action=${{ inputs.error_action }}
