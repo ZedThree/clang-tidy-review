@@ -13,4 +13,5 @@ runs:
         path: |
           clang-tidy-review-output.json
           clang-tidy-review-metadata.json
+          clang_tidy_review.yaml
           clang_fixes.json
