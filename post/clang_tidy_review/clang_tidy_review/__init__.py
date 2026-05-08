@@ -304,7 +304,7 @@ def merge_replacement_files(tmpdir: Path, mergefile: Path) -> None:
     merged: list[ClangDiagnostic] = []
     for replacefile in tmpdir.glob("*.yaml"):
         with replacefile.open() as f:
-            content: ClangTUDiagnostics | None = yaml.safe_load(f)
+            content: Optional[ClangTUDiagnostics] = yaml.safe_load(f)
         if not content:
             continue  # Skip empty files.
         merged.extend(content.get(mergekey, []))
@@ -1405,11 +1405,11 @@ def decorate_check_names(comment: str) -> str:
     regex = r"\[(((?:clang-analyzer)|(?:(?!clang)[\w]+))-([\.\w-]+))\]$"
 
     def repl(m: re.Match[str]) -> str:
-        match m.group(2):
-            case "clazy":
-                url = f"https://invent.kde.org/sdk/clazy/-/blob/master/docs/checks/README-{m.group(3)}.md"
-            case other:
-                url = f"https://clang.llvm.org/extra/clang-tidy/checks/{other}/{m.group(3)}.html"
+        checker = m.group(2)
+        if checker == "clazy":
+            url = f"https://invent.kde.org/sdk/clazy/-/blob/master/docs/checks/README-{m.group(3)}.md"
+        else:
+            url = f"https://clang.llvm.org/extra/clang-tidy/checks/{checker}/{m.group(3)}.html"
         return f"[[{m.group(1)}]({url})]"
 
     return re.sub(regex, repl, comment, count=1, flags=re.MULTILINE)
