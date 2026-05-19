@@ -155,10 +155,8 @@ def add_auth_arguments(parser: argparse.ArgumentParser):
     # Token
     parser.add_argument("--token", help="github auth token")
     # App
-    group_app = parser.add_argument_group(
-        """Github app installation authentication
-Permissions required: Contents (Read) and Pull requests (Read and Write)"""
-    )
+    group_app = parser.add_argument_group("""Github app installation authentication
+Permissions required: Contents (Read) and Pull requests (Read and Write)""")
     group_app.add_argument("--app-id", type=int, help="app ID")
     group_app.add_argument(
         "--private-key", type=str, help="app private key as a string"
@@ -225,7 +223,7 @@ def build_clang_tidy_warnings(
 
         # Get a temporary file. We immediately close the handle so clang-tidy can
         # overwrite it.
-        (handle, fixes_file) = tempfile.mkstemp(suffix=".yaml", dir=tmpdir)
+        handle, fixes_file = tempfile.mkstemp(suffix=".yaml", dir=tmpdir)
         os.close(handle)
         invocation.append(f"--export-fixes={fixes_file}")
 
@@ -646,14 +644,12 @@ def replace_one_line(
 def format_ordinary_line(source_line: str, line_offset: int) -> str:
     """Format a single C++ line with a diagnostic indicator"""
 
-    return textwrap.dedent(
-        f"""\
+    return textwrap.dedent(f"""\
          ```cpp
          {source_line}
          {line_offset * " " + "^"}
          ```
-         """
-    )
+         """)
 
 
 def format_diff_line(
@@ -698,16 +694,14 @@ def format_diff_line(
             old_line = whitespace.join([f"- {line}" for line in old_line.splitlines()])
 
             rel_path = try_relative(replacement_set[0]["FilePath"]).as_posix()
-            code_blocks += textwrap.dedent(
-                f"""\
+            code_blocks += textwrap.dedent(f"""\
 
                 {rel_path}:{replacement_line_num}:
                 ```diff
                 {old_line}
                 {new_line}
                 ```
-                """
-            )
+                """)
     return code_blocks, end_line
 
 
@@ -804,11 +798,9 @@ def make_comment_from_diagnostic(
     source_line = read_one_line(filename, offset_lookup[filename][line_num])
     end_line = line_num
 
-    print(
-        f"""{diagnostic}
+    print(f"""{diagnostic}
     {line_num=};    {line_offset=};    {source_line=}
-    """
-    )
+    """)
 
     if diagnostic["Replacements"]:
         code_blocks, end_line = format_diff_line(diagnostic, offset_lookup, line_num)
@@ -927,14 +919,12 @@ def make_timing_summary(
     total_user = sum(timings[user_key] for timings in clang_tidy_profiling.values())
     total_sys = sum(timings[sys_key] for timings in clang_tidy_profiling.values())
     print(f"Took: {total_user:.2f}s user {total_sys:.2f} system {total_wall:.2f} total")
-    file_summary = textwrap.dedent(
-        f"""\
+    file_summary = textwrap.dedent(f"""\
         ### Top {top_amount} files
         | File  | user (s)         | system (s)      | total (s)        |
         | ----- | ---------------- | --------------- | ---------------- |
         | Total | {total_user:.2f} | {total_sys:.2f} | {total_wall:.2f} |
-        """
-    )
+        """)
     topfiles = sorted(
         (
             (
@@ -976,14 +966,12 @@ def make_timing_summary(
 
     check_summary = ""
     if check_timings:
-        check_summary = textwrap.dedent(
-            f"""\
+        check_summary = textwrap.dedent(f"""\
             ### Top {top_amount} checks
             | Check | user (s) | system (s) | total (s) |
             | ----- | -------- | ---------- | --------- |
             | Total | {total_user:.2f} | {total_sys:.2f} | {total_wall:.2f} |
-            """
-        )
+            """)
         topchecks = sorted(
             ((check_name, *timings) for check_name, timings in check_timings.items()),
             key=lambda x: x[3],

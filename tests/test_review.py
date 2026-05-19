@@ -15,9 +15,7 @@ from pathlib import Path
 
 TEST_DIR = pathlib.Path(__file__).parent
 TEST_FILE = TEST_DIR / "src/hello.cxx"
-TEST_DIFF = [
-    unidiff.PatchSet(
-        r"""diff --git a/src/hello.cxx b/src/hello.cxx
+TEST_DIFF = [unidiff.PatchSet(r"""diff --git a/src/hello.cxx b/src/hello.cxx
 index 98edef4..6651631 100644
 --- a/src/hello.cxx
 +++ b/src/hello.cxx
@@ -40,9 +38,7 @@ index 98edef4..6651631 100644
  std::string hello(std::string name) {
    using namespace std::string_literals;
    return "Hello "s + name + "!\n"s;
-"""
-    )[0]
-]
+""")[0]]
 TEST_OFFSET_LOOKUP = {
     str(TEST_FILE): [
         0,
@@ -149,14 +145,12 @@ def test_set_output(tmp_path):
 def test_format_ordinary_line():
     text = ctr.format_ordinary_line("123456", 4)
 
-    assert text == textwrap.dedent(
-        """\
+    assert text == textwrap.dedent("""\
         ```cpp
         123456
             ^
         ```
-        """
-    )
+        """)
 
 
 @pytest.mark.parametrize(
@@ -393,13 +387,11 @@ def test_read_one_line():
 def test_format_diff_line():
     code_blocks, end_line = ctr.format_diff_line(TEST_DIAGNOSTIC, TEST_OFFSET_LOOKUP, 4)
 
-    expected_replacement = textwrap.dedent(
-        """
+    expected_replacement = textwrap.dedent("""
         ```suggestion
         std::string selective_hello(std::string name) {
         ```
-        """
-    )
+        """)
     assert code_blocks == expected_replacement
     assert end_line == 4
 
@@ -413,15 +405,13 @@ def test_make_comment():
         [],
     )
 
-    expected_comment = textwrap.dedent(
-        """\
+    expected_comment = textwrap.dedent("""\
         warning: return type 'const std::string' (aka 'const basic_string<char>') is 'const'-qualified at the top level, which may reduce code readability without improving const correctness [readability-const-return-type]
 
         ```suggestion
         std::string selective_hello(std::string name) {
         ```
-        """  # noqa: E501
-    )
+        """)  # noqa: E501
     assert comment == expected_comment
     assert end_line == 5
 
@@ -439,8 +429,7 @@ def test_format_notes():
     os.chdir(TEST_DIR)
     message = ctr.format_notes(notes, TEST_OFFSET_LOOKUP)
 
-    assert message == textwrap.dedent(
-        """\
+    assert message == textwrap.dedent("""\
     <details>
     <summary>Additional context</summary>
 
@@ -456,8 +445,7 @@ def test_format_notes():
     ```
 
     </details>
-        """
-    )
+        """)
 
 
 def test_make_comment_with_notes():
@@ -472,8 +460,7 @@ def test_make_comment_with_notes():
         ],
     )
 
-    expected_comment = textwrap.dedent(
-        """\
+    expected_comment = textwrap.dedent("""\
         warning: return type 'const std::string' (aka 'const basic_string<char>') is 'const'-qualified at the top level, which may reduce code readability without improving const correctness [readability-const-return-type]
 
         ```suggestion
@@ -494,8 +481,7 @@ def test_make_comment_with_notes():
         ```
 
         </details>
-        """  # noqa: E501
-    )
+        """)  # noqa: E501
     assert comment == expected_comment
     assert end_line == 5
 
